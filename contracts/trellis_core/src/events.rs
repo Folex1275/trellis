@@ -62,11 +62,14 @@ pub fn funds_locked(
 ///
 /// Topics: `("submitted", agreement_id)`
 /// Data:   `(milestone_id, proof_uri)`
+///
+/// `proof_uri` is `None` when the milestone was submitted without a proof
+/// link; it is never an empty string.
 pub fn work_submitted(
     env: &Env,
     agreement_id: BytesN<32>,
     milestone_id: u32,
-    proof_uri: String,
+    proof_uri: Option<String>,
 ) {
     env.events().publish(
         (symbol_short!("submitted"), agreement_id.clone()),

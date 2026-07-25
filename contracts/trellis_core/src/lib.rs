@@ -115,6 +115,9 @@ impl TrellisContract {
     ///
     /// The payee authorises this call.
     ///
+    /// Pass `Some(uri)` to attach delivery proof, or `None` to advance the
+    /// milestone to `WorkSubmitted` without one.
+    ///
     /// # Errors
     /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
     /// - [`TrellisError::InvalidMilestone`] – `milestone_id` out of range.
@@ -123,7 +126,7 @@ impl TrellisContract {
         env: Env,
         agreement_id: BytesN<32>,
         milestone_id: u32,
-        proof_uri: String,
+        proof_uri: Option<String>,
     ) -> Result<(), TrellisError> {
         let mut agreement = storage::read_agreement(&env, &agreement_id)?;
         agreement.payee.require_auth();
@@ -137,8 +140,8 @@ impl TrellisContract {
             return Err(TrellisError::InvalidStateTransition);
         }
 
-        // proof_uri is a plain String (not Option<String>); empty string is
-        // the "no proof" sentinel defined in types.rs.
+        // proof_uri is stored verbatim — `None` is the sole representation of
+        // "no proof", so there is no sentinel value to normalise.
         milestone.status = EscrowStatus::WorkSubmitted;
         milestone.proof_uri = proof_uri.clone();
         agreement.milestones.set(milestone_id, milestone);
