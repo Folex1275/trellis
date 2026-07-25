@@ -362,4 +362,27 @@ impl TrellisContract {
     ) -> Result<Agreement, TrellisError> {
         storage::read_agreement(&env, &agreement_id)
     }
+
+    /// Extend the storage TTL of an agreement so it is not archived.
+    ///
+    /// Every other entrypoint bumps the TTL as a side effect of reading or
+    /// writing, which covers agreements that are actively progressing.  This
+    /// entrypoint covers the ones that are not: a milestone with a months-long
+    /// delivery window, or a dispute sitting with an arbitrator.  Without it an
+    /// agreement could be archived — taking the record of who is owed what with
+    /// it — purely because nobody happened to interact with it in time.
+    ///
+    /// # Auth
+    /// Intentionally unauthenticated.  The call cannot read or mutate agreement
+    /// state; its only effect is to postpone archival, and the invoker pays the
+    /// rent for doing so.  Requiring the payer's or payee's signature would mean
+    /// an agreement could be lost because the one party able to save it was
+    /// unavailable — so anyone (a watchtower, a keeper bot, either counterparty)
+    /// may keep an agreement alive.
+    ///
+    /// # Errors
+    /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
+    pub fn extend_ttl(env: Env, agreement_id: BytesN<32>) -> Result<(), TrellisError> {
+        storage::extend_agreement_ttl(&env, &agreement_id)
+    }
 }
