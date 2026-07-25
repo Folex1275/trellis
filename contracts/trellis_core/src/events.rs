@@ -16,12 +16,7 @@ use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
 ///
 /// Topics: `("created", agreement_id)`
 /// Data:   `(payer, payee)`
-pub fn agreement_created(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    payer: Address,
-    payee: Address,
-) {
+pub fn agreement_created(env: &Env, agreement_id: BytesN<32>, payer: Address, payee: Address) {
     env.events().publish(
         (symbol_short!("created"), agreement_id.clone()),
         (payer, payee),
@@ -32,12 +27,7 @@ pub fn agreement_created(
 ///
 /// Topics: `("locked", agreement_id)`
 /// Data:   `(milestone_id, amount)`
-pub fn funds_locked(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    milestone_id: u32,
-    amount: i128,
-) {
+pub fn funds_locked(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, amount: i128) {
     env.events().publish(
         (symbol_short!("locked"), agreement_id.clone()),
         (milestone_id, amount),
@@ -48,12 +38,7 @@ pub fn funds_locked(
 ///
 /// Topics: `("submitted", agreement_id)`
 /// Data:   `(milestone_id, proof_uri)`
-pub fn work_submitted(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    milestone_id: u32,
-    proof_uri: String,
-) {
+pub fn work_submitted(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, proof_uri: String) {
     env.events().publish(
         (symbol_short!("submitted"), agreement_id.clone()),
         (milestone_id, proof_uri),
@@ -64,12 +49,7 @@ pub fn work_submitted(
 ///
 /// Topics: `("released", agreement_id)`
 /// Data:   `(milestone_id, amount)`
-pub fn funds_released(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    milestone_id: u32,
-    amount: i128,
-) {
+pub fn funds_released(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, amount: i128) {
     env.events().publish(
         (symbol_short!("released"), agreement_id.clone()),
         (milestone_id, amount),
@@ -80,11 +60,7 @@ pub fn funds_released(
 ///
 /// Topics: `("disputed", agreement_id)`
 /// Data:   `milestone_id`
-pub fn dispute_raised(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    milestone_id: u32,
-) {
+pub fn dispute_raised(env: &Env, agreement_id: BytesN<32>, milestone_id: u32) {
     env.events().publish(
         (symbol_short!("disputed"), agreement_id.clone()),
         milestone_id,
