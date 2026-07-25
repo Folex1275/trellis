@@ -1,22 +1,11 @@
+import { useNavigate } from '../lib/router'
 import { CONTRACT_ID } from '../lib/config'
 import { ACTIVE_NETWORK, explorerBaseUrl, networkLabel } from '../lib/explorer'
 import { ExplorerLink } from './ExplorerLink'
+import WalletConnect from './WalletConnect'
 
 function Navbar() {
-  const wallet = useWallet();
-  const navigate = useNavigateRouter();
-
-  const handleConnectWallet = async () => {
-    try {
-      await wallet.connect();
-    } catch {
-      // Error is handled in useWallet hook
-    }
-  };
-
-  const handleDisconnectWallet = async () => {
-    await wallet.disconnect();
-  };
+  const navigate = useNavigate();
 
   return (
     <nav className="bg-[#0A0E17] border-b border-navy-700 px-6 py-4 flex items-center justify-between">
@@ -42,9 +31,7 @@ function Navbar() {
           value={CONTRACT_ID}
           className="hidden md:inline-flex text-xs"
         />
-        <button className="bg-cyan-400 text-navy-900 font-semibold px-5 py-2 rounded-lg text-sm hover:bg-cyan-300 transition-colors">
-          Connect Wallet
-        </button>
+        <WalletConnect />
       </div>
     </nav>
   );
