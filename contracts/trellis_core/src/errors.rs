@@ -7,8 +7,13 @@ use soroban_sdk::contracterror;
 /// the public on-chain ABI.
 ///
 /// # Stability rule
-/// Discriminant values are **permanent**.  Never renumber an existing variant;
-/// only append new ones at the end of each group.
+/// Discriminant values are **permanent** from the first mainnet deployment
+/// onwards: never renumber an existing variant, only append new ones at the
+/// end.  While the protocol is pre-release (no mainnet deployment yet) the
+/// numbering is still being compacted — variant `6` (`NotDisputeResolver`)
+/// was removed because no codepath could ever return it, and `NoFundsToRefund`
+/// was renumbered from `7` to `6` to close the gap.  SDK consumers pinned to
+/// the old numbering must regenerate their bindings.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -31,12 +36,7 @@ pub enum TrellisError {
     /// e.g. attempting to release funds before work has been submitted.
     InvalidStateTransition = 5,
 
-    /// The caller is not the `dispute_resolver` recorded in the agreement.
-    /// Note: `require_auth()` on `agreement.dispute_resolver` is the primary
-    /// enforcement mechanism; this error is available for explicit checks.
-    NotDisputeResolver = 6,
-
     /// `cancel_unfunded_milestone` was called on a milestone that is not
     /// `Pending` — either already funded (funds exist) or already resolved.
-    NoFundsToRefund = 7,
+    NoFundsToRefund = 6,
 }

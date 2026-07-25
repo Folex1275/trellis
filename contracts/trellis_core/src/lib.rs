@@ -250,7 +250,9 @@ impl TrellisContract {
     /// `agreement.dispute_resolver.require_auth()` is the sole enforcement
     /// mechanism — the Soroban host automatically traps if the invoker's
     /// signature does not match the resolver address stored on-chain.
-    /// No additional manual check is needed beyond `require_auth()`.
+    /// No additional manual check is needed beyond `require_auth()`, which is
+    /// why this entrypoint has no resolver-mismatch error variant: an
+    /// unauthorised caller never reaches contract code at all.
     ///
     /// # Errors
     /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
@@ -265,8 +267,8 @@ impl TrellisContract {
         let mut agreement = storage::read_agreement(&env, &agreement_id)?;
 
         // `require_auth` is the enforcement gate — the host traps if the
-        // invoker is not the resolver; no separate NotDisputeResolver check
-        // is required on top of this.
+        // invoker is not the resolver, so a resolver-mismatch error variant
+        // would be unreachable and is deliberately absent from TrellisError.
         agreement.dispute_resolver.require_auth();
 
         let mut milestone = agreement
