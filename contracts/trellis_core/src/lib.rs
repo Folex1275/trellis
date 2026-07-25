@@ -312,6 +312,11 @@ impl TrellisContract {
     /// funds locked against it.  If any funds were ever locked the payer must
     /// go through the dispute flow instead.
     ///
+    /// # Events
+    /// Emits `("cancelled", agreement_id)` — **not** the `("resolved", …)`
+    /// event used by [`Self::resolve_dispute`]. No tokens move here, so
+    /// off-chain consumers must not treat a cancellation as a dispute ruling.
+    ///
     /// # Errors
     /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
     /// - [`TrellisError::InvalidMilestone`] – `milestone_id` out of range.
@@ -340,10 +345,16 @@ impl TrellisContract {
         agreement.milestones.set(milestone_id, milestone);
         storage::write_agreement(&env, &agreement_id, &agreement);
 
-        // Re-use milestone_resolved with refunded_to_payer=true — semantically
-        // correct (the milestone is being returned to payer's side) and avoids
-        // introducing a separate event type for a structurally identical outcome.
-        events::milestone_resolved(&env, agreement_id, milestone_id, true);
+        // Emit the dedicated cancellation event rather than milestone_resolved:
+        // no arbitration happened and no tokens moved, so indexers must be able
+        // to tell this apart from a dispute ruling.
+        events::milestone_cancelled(
+            &env,
+            agreement_id,
+            milestone_id,
+            agreement.payer.clone(),
+            agreement.payer,
+        );
 
         Ok(())
     }
