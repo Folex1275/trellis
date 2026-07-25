@@ -128,6 +128,16 @@ trellis/
 | `resolve_dispute` | Dispute Resolver | Rules on a dispute — refunds payer or pays payee |
 | `cancel_unfunded_milestone` | Payer | Cancels a milestone that was never funded |
 | `get_agreement` | Anyone | Returns the full current state of an agreement (read-only) |
+| `extend_agreement_ttl` | Anyone | Renews an agreement's ledger TTL so it is not archived (no state change) |
+
+#### Storage lifetime
+
+Soroban archives persistent ledger entries once their TTL expires, so an
+agreement that is never touched would eventually be lost. Every state-mutating
+entrypoint renews the agreement's TTL to ~30 days automatically. Agreements
+that stay idle longer than that — a long delivery window, a stalled dispute —
+need `extend_agreement_ttl` called before the TTL runs out; any address may
+call it, and the caller pays the rent.
 
 ### Tech stack
 

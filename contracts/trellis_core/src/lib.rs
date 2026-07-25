@@ -375,4 +375,26 @@ impl TrellisContract {
     ) -> Result<Agreement, TrellisError> {
         storage::read_agreement(&env, &agreement_id)
     }
+
+    /// Renew the ledger TTL of an agreement without changing its state.
+    ///
+    /// Persistent entries are archived once their TTL runs out, which would
+    /// destroy the agreement record. State-mutating entrypoints renew the TTL
+    /// automatically, but an agreement that sits idle — a long delivery
+    /// window, a stalled dispute — receives no writes and will eventually
+    /// expire. This entrypoint exists so an external keeper service can renew
+    /// it on a schedule.
+    ///
+    /// No auth is required: extending a TTL cannot alter agreement state and
+    /// the caller pays the rent, so there is nothing to gate. Requiring a
+    /// signature would only stop third-party keepers from doing useful work.
+    ///
+    /// # Errors
+    /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
+    pub fn extend_agreement_ttl(
+        env: Env,
+        agreement_id: BytesN<32>,
+    ) -> Result<(), TrellisError> {
+        storage::extend_agreement_ttl(&env, &agreement_id)
+    }
 }
