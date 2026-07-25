@@ -1,7 +1,15 @@
+import { useEffect } from 'react'
 import { useParams } from 'react-router-dom'
+import { addToHistory } from '../lib/history'
 
 function AgreementStatusPage() {
   const { id } = useParams<{ id: string }>()
+
+  // Viewing an agreement records it in the local history list.
+  useEffect(() => {
+    if (!id) return
+    addToHistory({ agreementId: id, lastViewed: new Date().toISOString() })
+  }, [id])
 
   return (
     <main className="px-6 pt-16 pb-32 max-w-3xl mx-auto">

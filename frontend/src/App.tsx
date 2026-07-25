@@ -4,6 +4,7 @@ import ToastProvider from './components/toast/ToastProvider'
 import HomePage from './pages/HomePage'
 import CreateAgreementPage from './pages/CreateAgreementPage'
 import AgreementStatusPage from './pages/AgreementStatusPage'
+import AgreementHistoryPage from './pages/AgreementHistoryPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
             <Route path="/create" element={<CreateAgreementPage />} />
             <Route path="/status" element={<AgreementStatusPage />} />
             <Route path="/agreement/:id" element={<AgreementStatusPage />} />
+            <Route path="/history" element={<AgreementHistoryPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

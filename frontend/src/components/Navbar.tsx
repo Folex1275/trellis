@@ -17,6 +17,9 @@ function Navbar() {
           <NavLink to="/status" className={navLinkClass}>
             Status
           </NavLink>
+          <NavLink to="/history" className={navLinkClass}>
+            History
+          </NavLink>
         </div>
       </div>
       <button className="bg-cyan-400 text-navy-900 font-semibold px-5 py-2 rounded-lg text-sm hover:bg-cyan-300 transition-colors">
