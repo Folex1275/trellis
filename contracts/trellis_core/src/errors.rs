@@ -39,4 +39,15 @@ pub enum TrellisError {
     /// `cancel_unfunded_milestone` was called on a milestone that is not
     /// `Pending` — either already funded (funds exist) or already resolved.
     NoFundsToRefund = 6,
+
+    /// `init` was called with an empty `milestones` vector. An agreement with
+    /// no milestones can never transition through any state, permanently
+    /// wasting the storage it occupies.
+    EmptyMilestoneSet = 7,
+
+    /// `init` was called with a `dispute_resolver` equal to `payer` or
+    /// `payee`. The resolver must be a neutral third party; allowing it to
+    /// coincide with either party would let that party unilaterally decide
+    /// its own disputes.
+    ResolverCannotBeParty = 8,
 }

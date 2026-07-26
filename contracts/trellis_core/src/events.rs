@@ -85,7 +85,7 @@ pub fn funds_released(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, am
 pub fn dispute_raised(env: &Env, agreement_id: BytesN<32>, milestone_id: u32) {
     env.events().publish(
         (symbol_short!("disputed"), agreement_id.clone()),
-        milestone_id,
+        (milestone_id, caller),
     );
 }
 
