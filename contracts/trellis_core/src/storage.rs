@@ -102,19 +102,56 @@ pub fn extend_agreement_ttl(env: &Env, id: &BytesN<32>) -> Result<(), TrellisErr
 
 /// Retrieve an [`Agreement`] from ledger storage by its unique ID.
 ///
+/// Reading also refreshes the entry's TTL. An agreement that is merely being
+/// watched — a long dispute window, a milestone awaiting delivery — is still
+/// in active use and must not be archived out from under its parties.
+///
 /// # Errors
 /// Returns [`TrellisError::AgreementNotFound`] (code 3) when no record exists
 /// for `id`. Callers may also use [`has_agreement`] to pre-check existence.
 pub fn read_agreement(env: &Env, id: &BytesN<32>) -> Result<Agreement, TrellisError> {
-    env.storage()
+    let key = DataKey::Agreement(id.clone());
+    let agreement: Agreement = env
+        .storage()
         .persistent()
-        .get(&DataKey::Agreement(id.clone()))
-        .ok_or(TrellisError::AgreementNotFound)
+        .get(&key)
+        .ok_or(TrellisError::AgreementNotFound)?;
+
+    // Reaching here proves the entry exists, so the bump is safe.
+    extend_ttl(env, &key);
+
+    Ok(agreement)
 }
 
 /// Return `true` if an [`Agreement`] with the given `id` exists in storage.
+///
+/// Deliberately does not bump the TTL: this is a pure existence probe used by
+/// `init` to reject duplicate IDs, and it must not charge rent for asking
+/// about an agreement that may not exist.
 pub fn has_agreement(env: &Env, id: &BytesN<32>) -> bool {
     env.storage()
         .persistent()
         .has(&DataKey::Agreement(id.clone()))
+}
+
+/// Refresh an agreement's TTL without reading or modifying its contents.
+///
+/// This is the escape hatch for agreements that sit idle longer than their
+/// TTL — a milestone with a long delivery window, or a dispute in arbitration.
+/// Without it, an agreement could expire simply because nobody happened to
+/// touch it in time.
+///
+/// # Errors
+/// Returns [`TrellisError::AgreementNotFound`] when no record exists for `id`,
+/// rather than letting the host trap on a missing key.
+pub fn extend_agreement_ttl(env: &Env, id: &BytesN<32>) -> Result<(), TrellisError> {
+    let key = DataKey::Agreement(id.clone());
+
+    if !env.storage().persistent().has(&key) {
+        return Err(TrellisError::AgreementNotFound);
+    }
+
+    extend_ttl(env, &key);
+
+    Ok(())
 }
