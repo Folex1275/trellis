@@ -1,6 +1,7 @@
 use soroban_sdk::{
+    symbol_short,
     testutils::{Address as _, Events},
-    token, vec, Address, BytesN, Env, String, Vec,
+    token, vec, Address, BytesN, Env, FromVal, String, Symbol, Vec,
 };
 
 use crate::{
@@ -353,5 +354,51 @@ fn test_payee_as_resolver_rejected() {
         Err(Ok(TrellisError::ResolverCannotBeParty)),
         "init with dispute_resolver == payee must return ResolverCannotBeParty"
     );
+}
+
+/// `dispute_raised` must embed the caller's address so off-chain indexers
+/// can attribute a dispute to whichever party raised it. Exercises both the
+/// payer-raised and payee-raised paths.
+#[test]
+fn test_dispute_raised_event_includes_caller() {
+    for (seed, raised_by_payer) in [(9u8, true), (10u8, false)] {
+        let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+        let id = agreement_id(&env, seed);
+
+        client.init(
+            &id,
+            &payer,
+            &payee,
+            &token_address,
+            &one_milestone(&env, 500),
+            &dispute_resolver,
+        );
+        client.lock_funds(&id, &0u32);
+
+        let caller = if raised_by_payer { &payer } else { &payee };
+        client.raise_dispute(caller, &id, &0u32);
+
+        // Find the "disputed" event and confirm its data includes `caller`.
+        let all_events = env.events().all();
+        let disputed_event = all_events
+            .iter()
+            .find(|(contract_id, topics, _)| {
+                *contract_id == client.address
+                    && topics
+                        .get(0)
+                        .map(|v| Symbol::from_val(&env, &v))
+                        .as_ref()
+                        == Some(&symbol_short!("disputed"))
+            })
+            .expect("raise_dispute must emit a disputed event");
+
+        let (_, _, data) = disputed_event;
+        let (milestone_id, event_caller) = <(u32, Address)>::from_val(&env, &data);
+        assert_eq!(milestone_id, 0u32, "event milestone_id must match");
+        assert_eq!(
+            &event_caller, caller,
+            "dispute_raised caller must match the address that raised it"
+        );
+    }
 }
 

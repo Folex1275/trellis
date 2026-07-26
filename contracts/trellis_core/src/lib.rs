@@ -253,7 +253,7 @@ impl TrellisContract {
         agreement.milestones.set(milestone_id, milestone);
         storage::write_agreement(&env, &agreement_id, &agreement);
 
-        events::dispute_raised(&env, agreement_id, milestone_id);
+        events::dispute_raised(&env, agreement_id, milestone_id, caller);
 
         Ok(())
     }

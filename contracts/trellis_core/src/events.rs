@@ -96,15 +96,20 @@ pub fn funds_released(
 /// Emitted when either party raises a dispute on a funded or work-submitted milestone.
 ///
 /// Topics: `("disputed", agreement_id)`
-/// Data:   `milestone_id`
+/// Data:   `(milestone_id, caller)`
+///
+/// `caller` is the address that raised the dispute — either the agreement's
+/// payer or payee — so off-chain indexers can attribute the dispute to a
+/// party without a secondary RPC call.
 pub fn dispute_raised(
     env: &Env,
     agreement_id: BytesN<32>,
     milestone_id: u32,
+    caller: Address,
 ) {
     env.events().publish(
         (symbol_short!("disputed"), agreement_id.clone()),
-        milestone_id,
+        (milestone_id, caller),
     );
 }
 
