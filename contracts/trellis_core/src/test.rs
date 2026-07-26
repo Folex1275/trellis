@@ -34,7 +34,14 @@ fn one_milestone(env: &Env, amount: i128) -> Vec<Milestone> {
 /// Common test fixture.
 ///
 /// Returns `(env, payer, payee, dispute_resolver, token_address, client)`.
-fn setup() -> (Env, Address, Address, Address, Address, TrellisContractClient<'static>) {
+fn setup() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TrellisContractClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -76,15 +83,14 @@ fn test_happy_path() {
     let amount: i128 = 1_000;
 
     // ── init ───────────────────────────────────────────────────────────────
-    client
-        .init(
-            &id,
-            &payer,
-            &payee,
-            &token_address,
-            &one_milestone(&env, amount),
-            &dispute_resolver,
-        );
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, amount),
+        &dispute_resolver,
+    );
 
     // ── lock_funds ─────────────────────────────────────────────────────────
     let payer_balance_before = token_client.balance(&payer);
@@ -100,7 +106,6 @@ fn test_happy_path() {
         amount,
         "trellis contract balance should equal locked milestone amount"
     );
-
 
     // ── submit_work ────────────────────────────────────────────────────────
     let proof = Some(String::from_str(&env, "ipfs://test"));
@@ -228,6 +233,50 @@ fn test_cancel_unfunded_milestone() {
     );
 }
 
+/// Multi-milestone agreements should preserve independent state transitions.
+#[test]
+fn test_multi_milestone_transitions() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 6);
+
+    let milestones = vec![
+        &env,
+        Milestone {
+            id: 0,
+            amount: 1_000,
+            status: EscrowStatus::Pending,
+            proof_uri: String::from_str(&env, ""),
+        },
+        Milestone {
+            id: 1,
+            amount: 2_000,
+            status: EscrowStatus::Pending,
+            proof_uri: String::from_str(&env, ""),
+        },
+    ];
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &milestones,
+        &dispute_resolver,
+    );
+
+    client.lock_funds(&id, &0u32);
+    let proof = String::from_str(&env, "ipfs://multi-milestone");
+    client.submit_work(&id, &0u32, &proof);
+    client.approve_and_release(&id, &0u32);
+
+    let agreement = client.get_agreement(&id);
+    let first = agreement.milestones.get(0).expect("milestone 0 must exist");
+    let second = agreement.milestones.get(1).expect("milestone 1 must exist");
+
+    assert_eq!(first.status, EscrowStatus::Completed);
+    assert_eq!(second.status, EscrowStatus::Pending);
+}
+
 /// get_agreement returns the correct Agreement after init, and AgreementNotFound
 /// for an ID that was never initialized.
 #[test]
@@ -277,6 +326,4 @@ fn test_get_agreement() {
         Ok(TrellisError::AgreementNotFound),
         "error must be AgreementNotFound"
     );
-
 }
-
