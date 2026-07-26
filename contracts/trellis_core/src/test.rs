@@ -280,3 +280,78 @@ fn test_get_agreement() {
 
 }
 
+/// `init` with an empty milestones vector must be rejected before any
+/// storage write occurs, rather than silently creating a stuck agreement.
+#[test]
+fn test_init_empty_milestones_fails() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 6);
+
+    let empty: Vec<Milestone> = vec![&env];
+
+    let result = client.try_init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &empty,
+        &dispute_resolver,
+    );
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::EmptyMilestoneSet)),
+        "init with zero milestones must return EmptyMilestoneSet"
+    );
+
+    // No agreement should have been written for the rejected ID.
+    let get_result = client.try_get_agreement(&id);
+    assert!(
+        get_result.is_err(),
+        "a rejected init must not leave a storage entry behind"
+    );
+}
+
+/// `init` must reject a `dispute_resolver` equal to the payer — otherwise
+/// the payer could grant itself unilateral dispute-resolution power.
+#[test]
+fn test_payer_as_resolver_rejected() {
+    let (env, payer, payee, _dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 7);
+
+    let result = client.try_init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 100),
+        &payer,
+    );
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::ResolverCannotBeParty)),
+        "init with dispute_resolver == payer must return ResolverCannotBeParty"
+    );
+}
+
+/// `init` must reject a `dispute_resolver` equal to the payee — otherwise
+/// the payee could grant itself unilateral dispute-resolution power.
+#[test]
+fn test_payee_as_resolver_rejected() {
+    let (env, payer, payee, _dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 8);
+
+    let result = client.try_init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 100),
+        &payee,
+    );
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::ResolverCannotBeParty)),
+        "init with dispute_resolver == payee must return ResolverCannotBeParty"
+    );
+}
+

@@ -33,9 +33,16 @@ impl TrellisContract {
     /// does not override per-milestone status on init so the caller controls
     /// the initial state of each deliverable.
     ///
+    /// `milestones` must be non-empty and `dispute_resolver` must be distinct
+    /// from both `payer` and `payee` — see the `Errors` below.
+    ///
     /// # Errors
     /// - [`TrellisError::AlreadyInitialized`] if an agreement with this ID
     ///   already exists in storage.
+    /// - [`TrellisError::EmptyMilestoneSet`] if `milestones` is empty — such
+    ///   an agreement could never transition through any state.
+    /// - [`TrellisError::ResolverCannotBeParty`] if `dispute_resolver` equals
+    ///   `payer` or `payee` — the resolver must be a neutral third party.
     pub fn init(
         env: Env,
         agreement_id: BytesN<32>,
@@ -49,6 +56,14 @@ impl TrellisContract {
 
         if storage::has_agreement(&env, &agreement_id) {
             return Err(TrellisError::AlreadyInitialized);
+        }
+
+        if milestones.is_empty() {
+            return Err(TrellisError::EmptyMilestoneSet);
+        }
+
+        if dispute_resolver == payer || dispute_resolver == payee {
+            return Err(TrellisError::ResolverCannotBeParty);
         }
 
         let agreement = Agreement {
