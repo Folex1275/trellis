@@ -323,8 +323,10 @@ impl TrellisContract {
     /// # Errors
     /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
     /// - [`TrellisError::InvalidMilestone`] – `milestone_id` out of range.
-    /// - [`TrellisError::NoFundsToRefund`] – milestone is not `Pending`
-    ///   (i.e. funds exist or the milestone is already resolved).
+    /// - [`TrellisError::InvalidStateTransition`] – milestone is not `Pending`
+    ///   (i.e. funds exist or the milestone is already resolved). This is a
+    ///   state machine violation, not an economic one — use the dispute flow
+    ///   instead once a milestone has left `Pending`.
     pub fn cancel_unfunded_milestone(
         env: Env,
         agreement_id: BytesN<32>,
@@ -340,7 +342,7 @@ impl TrellisContract {
 
         if milestone.status != EscrowStatus::Pending {
             // Funds exist or milestone already resolved — use dispute flow.
-            return Err(TrellisError::NoFundsToRefund);
+            return Err(TrellisError::InvalidStateTransition);
         }
 
         // Mark the milestone closed with no token movement required.

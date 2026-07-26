@@ -588,6 +588,17 @@
                       "val": {
                         "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "total_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 1000
+                        }
+                      }
                     }
                   ]
                 }
@@ -595,7 +606,7 @@
             },
             "ext": "v0"
           },
-          1555200
+          518400
         ]
       ],
       [

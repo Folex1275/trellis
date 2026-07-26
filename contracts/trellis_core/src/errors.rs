@@ -36,7 +36,14 @@ pub enum TrellisError {
     /// e.g. attempting to release funds before work has been submitted.
     InvalidStateTransition = 5,
 
-    /// `cancel_unfunded_milestone` was called on a milestone that is not
-    /// `Pending` — either already funded (funds exist) or already resolved.
+    /// Reserved for a genuine "nothing to refund" economic condition.
+    ///
+    /// No codepath currently returns this: `cancel_unfunded_milestone` only
+    /// ever runs while a milestone still holds no funds, so calling it on a
+    /// milestone that has left `Pending` is a state machine violation
+    /// ([`TrellisError::InvalidStateTransition`]), not an economic one. Kept
+    /// as a distinct variant — rather than removed like the former
+    /// `NotDisputeResolver` — in case a future refund-eligible path needs to
+    /// distinguish "no funds exist" from "wrong state" at the ABI level.
     NoFundsToRefund = 6,
 }

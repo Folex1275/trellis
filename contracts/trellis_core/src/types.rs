@@ -29,6 +29,11 @@ pub struct Milestone {
     /// Ordinal identifier for this milestone within the agreement (0-indexed).
     pub id: u32,
     /// Token amount (in the smallest denomination) locked for this milestone.
+    ///
+    /// Must be strictly positive — `init` rejects zero or negative amounts
+    /// with [`crate::errors::TrellisError::InvalidMilestone`], since a
+    /// zero-value milestone creates a noise transaction with no economic
+    /// effect and a negative amount is not a meaningful escrow value.
     pub amount: i128,
     /// Current lifecycle state of this milestone.
     pub status: EscrowStatus,
@@ -58,4 +63,12 @@ pub struct Agreement {
     pub milestones: Vec<Milestone>,
     /// Trusted third-party address authorised to resolve disputes.
     pub dispute_resolver: Address,
+    /// Sum of every milestone's `amount`, pre-computed once in `init`.
+    ///
+    /// Lets off-chain readers (indexers, the CLI, the frontend) get the
+    /// agreement's total value from a single field instead of iterating
+    /// `milestones` on every read. Fixed for the lifetime of the agreement —
+    /// there is no entrypoint that adds, removes, or resizes milestones after
+    /// `init`, so it never needs recomputation.
+    pub total_amount: i128,
 }
