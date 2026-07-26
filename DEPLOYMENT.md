@@ -134,6 +134,10 @@ trellis submit-work \
 
 > Must be signed by the payee identity
 
+`--proof-uri` is optional — omit it to mark the milestone submitted without a
+proof link. Do not pass an empty string: the contract stores `proof_uri` as an
+`Option`, so "no proof" is the absent flag, not `""`.
+
 ### Approve and release payment
 
 ```bash

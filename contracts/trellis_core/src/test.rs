@@ -26,7 +26,7 @@ fn one_milestone(env: &Env, amount: i128) -> Vec<Milestone> {
             id: 0,
             amount,
             status: EscrowStatus::Pending,
-            proof_uri: String::from_str(env, ""),
+            proof_uri: None,
         },
     ]
 }
@@ -103,7 +103,7 @@ fn test_happy_path() {
 
 
     // ── submit_work ────────────────────────────────────────────────────────
-    let proof = String::from_str(&env, "ipfs://test");
+    let proof = Some(String::from_str(&env, "ipfs://test"));
     client.submit_work(&id, &0u32, &proof);
 
     // ── approve_and_release ────────────────────────────────────────────────

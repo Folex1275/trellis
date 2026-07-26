@@ -1,20 +1,28 @@
 import { useEffect, useState } from 'react'
 import Navbar from './components/Navbar'
+import { ExplorerLink } from './components/ExplorerLink'
 import { NetworkBackground } from './components/NetworkBackground'
-import { AgreementIdGenerator } from './components/AgreementIdGenerator'
+import { CONTRACT_ID } from './lib/config'
+import { explorerBaseUrl, networkLabel } from './lib/explorer'
 
 function App() {
-  const [showGenerator, setShowGenerator] = useState(false)
+  const route = useRoute();
 
   useEffect(() => {
-    const theme = localStorage.getItem('theme') || 'dark'
-    if (theme === 'light') {
-      document.documentElement.classList.add('light')
-    } else {
-      document.documentElement.classList.remove('light')
-      document.documentElement.classList.add('dark')
+    initializeRouter();
+  }, []);
+
+  const renderPage = () => {
+    switch (route.page) {
+      case 'status':
+        return <StatusPage />;
+      case 'create':
+        return <CreatePage />;
+      case 'home':
+      default:
+        return <HomePage />;
     }
-  }, [])
+  };
 
   return (
     <div className="relative min-h-screen text-gray-200 dark:text-gray-200 light:text-gray-900 bg-navy-900 dark:bg-navy-900 light:bg-white">
@@ -35,32 +43,34 @@ function App() {
               </svg>
               Back
             </button>
-            <AgreementIdGenerator />
-          </main>
-        ) : (
-          <main className="flex flex-col items-center justify-center px-4 sm:px-6 pt-16 sm:pt-24 pb-16 sm:pb-32 text-center">
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white dark:text-white light:text-gray-900 max-w-2xl leading-tight">
-              Trustless Escrow for Remote Work
-            </h1>
-            <p className="mt-4 text-gray-400 dark:text-gray-400 light:text-gray-600 text-base sm:text-lg md:text-xl max-w-xl px-2">
-              Built on Stellar's Soroban smart contract platform
-            </p>
-            <div className="mt-8 sm:mt-10 flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto px-2">
-              <button
-                onClick={() => setShowGenerator(true)}
-                className="bg-cyan-400 text-navy-900 font-semibold px-6 sm:px-8 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base hover:bg-cyan-300 transition-colors"
-              >
-                Create Agreement
-              </button>
-              <button className="border border-cyan-400 text-cyan-400 dark:text-cyan-400 light:text-cyan-500 font-semibold px-6 sm:px-8 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base hover:bg-cyan-400/10 transition-colors">
-                Check Status
-              </button>
-            </div>
-          </main>
-        )}
+          </div>
+
+          {/* Escrow terms are only as trustworthy as they are verifiable —
+              surface the contract address itself, not just a claim about it. */}
+          <p className="mt-12 flex flex-wrap items-center justify-center gap-2 text-sm text-gray-500">
+            <span>Escrow contract on {networkLabel()}:</span>
+            <ExplorerLink type="contract" value={CONTRACT_ID} full />
+          </p>
+        </main>
+
+        <footer className="border-t border-navy-700/60 px-6 py-8 text-center text-sm text-gray-500">
+          <p>
+            Every agreement, deposit, and dispute resolution is recorded on-chain. Verify any of
+            them yourself on{' '}
+            <a
+              href={explorerBaseUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-cyan-400 underline decoration-cyan-400/40 underline-offset-2 transition-colors hover:text-cyan-300"
+            >
+              Stellar Expert
+            </a>
+            .
+          </p>
+        </footer>
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
