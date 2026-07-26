@@ -4,6 +4,7 @@ use soroban_sdk::{contracttype, Address, BytesN, String, Vec};
 // EscrowStatus — lifecycle state machine for an escrow agreement / milestone
 // ---------------------------------------------------------------------------
 #[contracttype]
+#[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EscrowStatus {
     /// Agreement created but no funds deposited yet.
