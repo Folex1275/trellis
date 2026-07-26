@@ -229,8 +229,36 @@ fn test_cancel_unfunded_milestone() {
     let result = client.try_cancel_unfunded_milestone(&id, &0u32);
     assert_eq!(
         result,
-        Err(Ok(TrellisError::NoFundsToRefund)),
-        "second cancel must return NoFundsToRefund"
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "second cancel on an already-Refunded milestone must return InvalidStateTransition"
+    );
+}
+
+/// Cancelling a milestone that has already been funded must be rejected with
+/// InvalidStateTransition, not NoFundsToRefund — the milestone genuinely has
+/// funds locked, so the error must reflect the state machine violation.
+#[test]
+fn test_cancel_funded_milestone_fails_with_invalid_state_transition() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 6);
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 400),
+        &dispute_resolver,
+    );
+
+    // Fund the milestone so it is no longer Pending.
+    client.lock_funds(&id, &0u32);
+
+    let result = client.try_cancel_unfunded_milestone(&id, &0u32);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "cancelling a Funded milestone must return InvalidStateTransition"
     );
 }
 

@@ -120,14 +120,15 @@ trellis/
 
 | Function | Caller | Effect |
 |---|---|---|
-| `init` | Payer | Creates a new agreement with one or more milestones |
+| `init` | Payer | Creates a new agreement with one or more milestones (each `amount` must be strictly positive) |
 | `lock_funds` | Payer | Deposits funds for a milestone into the contract |
 | `submit_work` | Payee | Submits proof of completed work for a funded milestone |
 | `approve_and_release` | Payer | Approves submitted work, releases funds to payee |
 | `raise_dispute` | Payer or Payee | Flags a milestone for resolver review |
 | `resolve_dispute` | Dispute Resolver | Rules on a dispute — refunds payer or pays payee |
-| `cancel_unfunded_milestone` | Payer | Cancels a milestone that was never funded |
+| `cancel_unfunded_milestone` | Payer | Cancels a milestone that was never funded (fails with `InvalidStateTransition` once funds are locked) |
 | `get_agreement` | Anyone | Returns the full current state of an agreement (read-only) |
+| `get_total_amount` | Anyone | Returns the agreement's total value — sum of all milestone amounts (read-only) |
 | `extend_agreement_ttl` | Anyone | Renews an agreement's ledger TTL so it is not archived (no state change) |
 
 #### Storage lifetime
@@ -179,7 +180,7 @@ cd contracts/trellis_core
 cargo test
 ```
 
-All 5 integration tests run in the Soroban sandbox — happy path, double-init protection, dispute resolution, milestone cancellation, and the `get_agreement` view function.
+All 9 integration tests run in the Soroban sandbox — happy path, double-init protection, dispute resolution, milestone cancellation (including the state-transition guard on already-funded milestones), positive-amount validation on `init`, the pre-computed `total_amount`, and the `get_agreement` view function.
 
 ### Build the contract WASM
 

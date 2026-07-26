@@ -73,6 +73,7 @@ impl TrellisContract {
             token,
             milestones,
             dispute_resolver,
+            total_amount,
         };
 
         storage::write_agreement(&env, &agreement_id, &agreement);
@@ -340,8 +341,10 @@ impl TrellisContract {
     /// # Errors
     /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
     /// - [`TrellisError::InvalidMilestone`] – `milestone_id` out of range.
-    /// - [`TrellisError::NoFundsToRefund`] – milestone is not `Pending`
-    ///   (i.e. funds exist or the milestone is already resolved).
+    /// - [`TrellisError::InvalidStateTransition`] – milestone is not `Pending`
+    ///   (i.e. funds exist or the milestone is already resolved). This is a
+    ///   state machine violation, not an economic one — use the dispute flow
+    ///   instead once a milestone has left `Pending`.
     pub fn cancel_unfunded_milestone(
         env: Env,
         agreement_id: BytesN<32>,
@@ -357,7 +360,7 @@ impl TrellisContract {
 
         if milestone.status != EscrowStatus::Pending {
             // Funds exist or milestone already resolved — use dispute flow.
-            return Err(TrellisError::NoFundsToRefund);
+            return Err(TrellisError::InvalidStateTransition);
         }
 
         // Mark the milestone closed with no token movement required.
@@ -393,6 +396,19 @@ impl TrellisContract {
         storage::read_agreement(&env, &agreement_id)
     }
 
+    /// Return the pre-computed total value of an agreement.
+    ///
+    /// Equivalent to summing `amount` over every milestone in
+    /// [`Self::get_agreement`], but avoids the O(n) iteration for callers who
+    /// only need the total — see [`Agreement::total_amount`].
+    ///
+    /// # Errors
+    /// Returns [`TrellisError::AgreementNotFound`] if no agreement exists for
+    /// the given `agreement_id`.
+    pub fn get_total_amount(env: Env, agreement_id: BytesN<32>) -> Result<i128, TrellisError> {
+        storage::read_agreement(&env, &agreement_id).map(|agreement| agreement.total_amount)
+    }
+
     /// Renew the ledger TTL of an agreement without changing its state.
     ///
     /// Persistent entries are archived once their TTL runs out, which would
@@ -414,4 +430,29 @@ impl TrellisContract {
     ) -> Result<(), TrellisError> {
         storage::extend_agreement_ttl(&env, &agreement_id)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Reject non-positive milestone amounts and sum the rest into a total.
+///
+/// Runs once, in `init`, before the agreement is written to storage — so an
+/// invalid milestone list never consumes storage, and every later reader gets
+/// the sum for free via [`Agreement::total_amount`] instead of iterating
+/// `milestones` on every query.
+///
+/// # Errors
+/// Returns [`TrellisError::InvalidMilestone`] on the first milestone whose
+/// `amount` is zero or negative.
+fn validate_milestones(milestones: &Vec<Milestone>) -> Result<i128, TrellisError> {
+    let mut total: i128 = 0;
+    for m in milestones.iter() {
+        if m.amount <= 0 {
+            return Err(TrellisError::InvalidMilestone);
+        }
+        total += m.amount;
+    }
+    Ok(total)
 }
