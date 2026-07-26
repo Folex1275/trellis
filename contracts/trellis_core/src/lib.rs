@@ -115,6 +115,9 @@ impl TrellisContract {
     ///
     /// The payee authorises this call.
     ///
+    /// Pass `Some(uri)` to attach delivery proof, or `None` to advance the
+    /// milestone to `WorkSubmitted` without one.
+    ///
     /// # Errors
     /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
     /// - [`TrellisError::InvalidMilestone`] – `milestone_id` out of range.
@@ -123,7 +126,7 @@ impl TrellisContract {
         env: Env,
         agreement_id: BytesN<32>,
         milestone_id: u32,
-        proof_uri: String,
+        proof_uri: Option<String>,
     ) -> Result<(), TrellisError> {
         let mut agreement = storage::read_agreement(&env, &agreement_id)?;
         agreement.payee.require_auth();
@@ -137,8 +140,8 @@ impl TrellisContract {
             return Err(TrellisError::InvalidStateTransition);
         }
 
-        // proof_uri is a plain String (not Option<String>); empty string is
-        // the "no proof" sentinel defined in types.rs.
+        // proof_uri is stored verbatim — `None` is the sole representation of
+        // "no proof", so there is no sentinel value to normalise.
         milestone.status = EscrowStatus::WorkSubmitted;
         milestone.proof_uri = proof_uri.clone();
         agreement.milestones.set(milestone_id, milestone);
@@ -250,7 +253,9 @@ impl TrellisContract {
     /// `agreement.dispute_resolver.require_auth()` is the sole enforcement
     /// mechanism — the Soroban host automatically traps if the invoker's
     /// signature does not match the resolver address stored on-chain.
-    /// No additional manual check is needed beyond `require_auth()`.
+    /// No additional manual check is needed beyond `require_auth()`, which is
+    /// why this entrypoint has no resolver-mismatch error variant: an
+    /// unauthorised caller never reaches contract code at all.
     ///
     /// # Errors
     /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
@@ -265,8 +270,8 @@ impl TrellisContract {
         let mut agreement = storage::read_agreement(&env, &agreement_id)?;
 
         // `require_auth` is the enforcement gate — the host traps if the
-        // invoker is not the resolver; no separate NotDisputeResolver check
-        // is required on top of this.
+        // invoker is not the resolver, so a resolver-mismatch error variant
+        // would be unreachable and is deliberately absent from TrellisError.
         agreement.dispute_resolver.require_auth();
 
         let mut milestone = agreement
@@ -310,6 +315,11 @@ impl TrellisContract {
     /// funds locked against it.  If any funds were ever locked the payer must
     /// go through the dispute flow instead.
     ///
+    /// # Events
+    /// Emits `("cancelled", agreement_id)` — **not** the `("resolved", …)`
+    /// event used by [`Self::resolve_dispute`]. No tokens move here, so
+    /// off-chain consumers must not treat a cancellation as a dispute ruling.
+    ///
     /// # Errors
     /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
     /// - [`TrellisError::InvalidMilestone`] – `milestone_id` out of range.
@@ -338,10 +348,16 @@ impl TrellisContract {
         agreement.milestones.set(milestone_id, milestone);
         storage::write_agreement(&env, &agreement_id, &agreement);
 
-        // Re-use milestone_resolved with refunded_to_payer=true — semantically
-        // correct (the milestone is being returned to payer's side) and avoids
-        // introducing a separate event type for a structurally identical outcome.
-        events::milestone_resolved(&env, agreement_id, milestone_id, true);
+        // Emit the dedicated cancellation event rather than milestone_resolved:
+        // no arbitration happened and no tokens moved, so indexers must be able
+        // to tell this apart from a dispute ruling.
+        events::milestone_cancelled(
+            &env,
+            agreement_id,
+            milestone_id,
+            agreement.payer.clone(),
+            agreement.payer,
+        );
 
         Ok(())
     }
@@ -361,5 +377,27 @@ impl TrellisContract {
         agreement_id: BytesN<32>,
     ) -> Result<Agreement, TrellisError> {
         storage::read_agreement(&env, &agreement_id)
+    }
+
+    /// Renew the ledger TTL of an agreement without changing its state.
+    ///
+    /// Persistent entries are archived once their TTL runs out, which would
+    /// destroy the agreement record. State-mutating entrypoints renew the TTL
+    /// automatically, but an agreement that sits idle — a long delivery
+    /// window, a stalled dispute — receives no writes and will eventually
+    /// expire. This entrypoint exists so an external keeper service can renew
+    /// it on a schedule.
+    ///
+    /// No auth is required: extending a TTL cannot alter agreement state and
+    /// the caller pays the rent, so there is nothing to gate. Requiring a
+    /// signature would only stop third-party keepers from doing useful work.
+    ///
+    /// # Errors
+    /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
+    pub fn extend_agreement_ttl(
+        env: Env,
+        agreement_id: BytesN<32>,
+    ) -> Result<(), TrellisError> {
+        storage::extend_agreement_ttl(&env, &agreement_id)
     }
 }

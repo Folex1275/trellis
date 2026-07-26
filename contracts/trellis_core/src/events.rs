@@ -8,8 +8,22 @@ use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
 //     by event name and/or agreement ID from off-chain indexers.
 //   • data:   a tuple of the remaining fields relevant to the event.
 //
-// The topic Symbol is kept to ≤8 chars so symbol_short! can inline it as a
+// The topic Symbol is kept to ≤9 chars so symbol_short! can inline it as a
 // 64-bit value, avoiding heap allocation on the guest WASM side.
+//
+// The contract emits exactly 7 events:
+//   1. "created"   – agreement_created
+//   2. "locked"    – funds_locked
+//   3. "submitted" – work_submitted
+//   4. "released"  – funds_released
+//   5. "disputed"  – dispute_raised
+//   6. "resolved"  – milestone_resolved   (dispute rulings only)
+//   7. "cancelled" – milestone_cancelled  (payer withdrawing an unfunded milestone)
+//
+// "resolved" and "cancelled" are deliberately distinct: an indexer must be able
+// to tell an arbitrated dispute outcome apart from a payer walking back a
+// milestone that was never funded, since only the former involves token
+// movement and resolver involvement.
 // ---------------------------------------------------------------------------
 
 /// Emitted when a new escrow agreement is created.
@@ -48,11 +62,14 @@ pub fn funds_locked(
 ///
 /// Topics: `("submitted", agreement_id)`
 /// Data:   `(milestone_id, proof_uri)`
+///
+/// `proof_uri` is `None` when the milestone was submitted without a proof
+/// link; it is never an empty string.
 pub fn work_submitted(
     env: &Env,
     agreement_id: BytesN<32>,
     milestone_id: u32,
-    proof_uri: String,
+    proof_uri: Option<String>,
 ) {
     env.events().publish(
         (symbol_short!("submitted"), agreement_id.clone()),
@@ -91,14 +108,16 @@ pub fn dispute_raised(
     );
 }
 
-/// Emitted when the dispute resolver settles a disputed milestone,
-/// or when a payer cancels an unfunded (Pending) milestone.
+/// Emitted when the dispute resolver settles a disputed milestone.
+///
+/// This event means an arbitration ruling was made and tokens moved. It is
+/// **not** emitted for cancellations — see [`milestone_cancelled`].
 ///
 /// Topics: `("resolved", agreement_id)`
 /// Data:   `(milestone_id, refunded_to_payer)`
 ///
-/// `refunded_to_payer = true`  → funds returned to payer (or milestone never funded).
-/// `refunded_to_payer = false` → funds awarded to payee.
+/// `refunded_to_payer = true`  → locked funds returned to payer.
+/// `refunded_to_payer = false` → locked funds awarded to payee.
 pub fn milestone_resolved(
     env: &Env,
     agreement_id: BytesN<32>,
@@ -108,5 +127,31 @@ pub fn milestone_resolved(
     env.events().publish(
         (symbol_short!("resolved"), agreement_id.clone()),
         (milestone_id, refunded_to_payer),
+    );
+}
+
+/// Emitted when a payer cancels a milestone that was never funded.
+///
+/// No tokens move: the milestone simply leaves the `Pending` state without
+/// ever having been escrowed. Indexers should treat this as a withdrawal of a
+/// proposal, not as a dispute outcome.
+///
+/// Topics: `("cancelled", agreement_id)`
+/// Data:   `(milestone_id, payer, cancelled_by)`
+///
+/// `payer` is the agreement's payer; `cancelled_by` is the address that
+/// authorised the cancellation. These are the same address today (only the
+/// payer may cancel) but are reported separately so the event stays
+/// self-describing if delegated cancellation is ever added.
+pub fn milestone_cancelled(
+    env: &Env,
+    agreement_id: BytesN<32>,
+    milestone_id: u32,
+    payer: Address,
+    cancelled_by: Address,
+) {
+    env.events().publish(
+        (symbol_short!("cancelled"), agreement_id.clone()),
+        (milestone_id, payer, cancelled_by),
     );
 }
