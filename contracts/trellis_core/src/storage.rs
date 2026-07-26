@@ -15,59 +15,89 @@ pub enum DataKey {
 }
 
 // ---------------------------------------------------------------------------
-// Time-to-live (TTL) policy
+// TTL (rent) parameters
 //
-// Every persistent entry on Soroban carries a finite TTL measured in ledgers.
-// When it lapses the entry is archived and the data becomes unreadable — for
-// Trellis that would mean escrowed funds locked in a contract that no longer
-// knows who they belong to.  Entries must therefore be bumped explicitly; the
-// host never renews them on its own.
-//
-// Both values are well inside the 120-day (3_110_400 ledger) network ceiling
-// for persistent entries, so `extend_ttl` cannot fail on an over-long bump.
+// Every persistent ledger entry on Soroban carries a finite time-to-live.
+// When the TTL runs out the entry is archived and, without a restore, the data
+// is effectively lost.  The TTL does *not* renew itself on write — the
+// contract must explicitly call `extend_ttl`.
 // ---------------------------------------------------------------------------
 
-/// Ledgers closed in a day, assuming Stellar's ~5 second close time.
-pub const LEDGERS_PER_DAY: u32 = 17_280;
+/// Ledgers closed in roughly one day, at Stellar's ~5-second close cadence
+/// (86_400 / 5 = 17_280).  Used only to express the constants below in
+/// human-readable units.
+const DAY_IN_LEDGERS: u32 = 17_280;
 
-/// Bump an agreement only once its remaining TTL drops below ~60 days.
+/// Target lifetime for an agreement entry: ~30 days from the most recent
+/// extension.  Every extension resets the entry's TTL to this value.
 ///
-/// Extending on every access regardless would charge rent on writes that
-/// change nothing about the expiry date; the threshold makes the bump a no-op
-/// for agreements that are already comfortably alive.
-pub const AGREEMENT_TTL_THRESHOLD: u32 = 60 * LEDGERS_PER_DAY;
+/// This sits well inside Soroban's maximum persistent entry TTL, so the
+/// `extend_ttl` call can never be rejected for overshooting the cap.
+pub const LEDGER_BUMP: u32 = DAY_IN_LEDGERS * 30;
 
-/// Restore an agreement's TTL to ~90 days whenever the threshold is crossed.
+/// Only pay for an extension once the remaining TTL drops below ~15 days.
 ///
-/// The 30-day gap between threshold and target is the window in which a single
-/// interaction — or an external `extend_ttl` call — keeps the agreement alive
-/// indefinitely.
-pub const AGREEMENT_TTL_EXTEND_TO: u32 = 90 * LEDGERS_PER_DAY;
+/// Above this threshold `extend_ttl` is a no-op, so back-to-back writes in the
+/// same period do not repeatedly charge rent.  The 15-day gap between the
+/// threshold and [`LEDGER_BUMP`] is the window a keeper service has to call
+/// `extend_agreement_ttl` on an otherwise idle agreement before it expires.
+const LEDGER_THRESHOLD: u32 = DAY_IN_LEDGERS * 15;
 
 // ---------------------------------------------------------------------------
 // Storage helpers — the only place in the codebase that touches
 // env.storage().persistent().  All other modules go through these functions.
 // ---------------------------------------------------------------------------
 
-/// Bump the TTL of an agreement entry that is known to exist.
+/// Reset the TTL of the agreement entry for `id` to [`LEDGER_BUMP`] ledgers.
 ///
-/// Callers must have established existence first: the host traps when
-/// `extend_ttl` is applied to a missing key.
-fn extend_ttl(env: &Env, key: &DataKey) {
+/// A no-op while the entry still has more than [`LEDGER_THRESHOLD`] ledgers
+/// left, and a no-op if the entry does not exist.
+fn bump_ttl(env: &Env, id: &BytesN<32>) {
+    let key = DataKey::Agreement(id.clone());
+
+    // extend_ttl traps on a missing entry, so guard the lookup.
+    if !env.storage().persistent().has(&key) {
+        return;
+    }
+
     env.storage()
         .persistent()
-        .extend_ttl(key, AGREEMENT_TTL_THRESHOLD, AGREEMENT_TTL_EXTEND_TO);
+        .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
 }
 
 /// Persist an [`Agreement`] to ledger storage under its unique ID.
 ///
-/// Writing also refreshes the entry's TTL, so any state-changing call —
-/// funding a milestone, submitting work, resolving a dispute — keeps the
-/// agreement alive for another [`AGREEMENT_TTL_EXTEND_TO`] ledgers.
+/// Uses [`soroban_sdk::storage::Persistent`] so the entry survives
+/// ledger archival as long as the rent is maintained.
+///
+/// Writing alone does **not** renew an entry's TTL, so every write is followed
+/// by a [`bump_ttl`] call.  Because this is the only function in the codebase
+/// that writes an agreement, routing the bump through here guarantees no
+/// state-mutating entrypoint can leave an entry to expire.
 pub fn write_agreement(env: &Env, id: &BytesN<32>, agreement: &Agreement) {
-    let key = DataKey::Agreement(id.clone());
-    env.storage().persistent().set(&key, agreement);
-    extend_ttl(env, &key);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Agreement(id.clone()), agreement);
+
+    bump_ttl(env, id);
+}
+
+/// Renew the TTL of an existing agreement entry without modifying it.
+///
+/// Backs the public `extend_agreement_ttl` entrypoint so keeper services can
+/// keep long-running agreements alive between state transitions.
+///
+/// # Errors
+/// Returns [`TrellisError::AgreementNotFound`] if no entry exists for `id`,
+/// so a keeper pointed at a bad ID fails loudly instead of silently no-opping.
+pub fn extend_agreement_ttl(env: &Env, id: &BytesN<32>) -> Result<(), TrellisError> {
+    if !has_agreement(env, id) {
+        return Err(TrellisError::AgreementNotFound);
+    }
+
+    bump_ttl(env, id);
+
+    Ok(())
 }
 
 /// Retrieve an [`Agreement`] from ledger storage by its unique ID.

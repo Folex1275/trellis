@@ -33,8 +33,11 @@ pub struct Milestone {
     /// Current lifecycle state of this milestone.
     pub status: EscrowStatus,
     /// Optional URI linking to delivery proof (e.g. GitHub PR, Figma file).
-    /// Stored as an empty String when no proof has been submitted yet.
-    pub proof_uri: String,
+    ///
+    /// `None` means no proof has been submitted yet. This is the only
+    /// representation of "no proof" — an empty `Some("")` is not a sentinel
+    /// and callers should not construct one.
+    pub proof_uri: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

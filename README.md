@@ -128,34 +128,16 @@ trellis/
 | `resolve_dispute` | Dispute Resolver | Rules on a dispute — refunds payer or pays payee |
 | `cancel_unfunded_milestone` | Payer | Cancels a milestone that was never funded |
 | `get_agreement` | Anyone | Returns the full current state of an agreement (read-only) |
-| `extend_ttl` | Anyone | Extends an agreement's storage lifetime so it is not archived |
+| `extend_agreement_ttl` | Anyone | Renews an agreement's ledger TTL so it is not archived (no state change) |
 
-### Storage lifetime
+#### Storage lifetime
 
-Soroban gives every persistent ledger entry a finite time-to-live (TTL). When
-it lapses the entry is archived and its data can no longer be read — for an
-escrow contract that would mean losing the record of who is owed what.
-
-Trellis bumps an agreement's TTL to roughly **90 days** whenever its remaining
-lifetime falls below **60 days**. That bump happens automatically on every
-read and every write, so any agreement that is actively progressing stays
-alive without anyone thinking about it.
-
-Agreements that sit idle longer than their TTL — a milestone with a long
-delivery window, or a dispute awaiting arbitration — need one explicit nudge.
-Any account can provide it, paying the rent itself:
-
-```bash
-stellar contract invoke \
-  --id $CONTRACT_ID \
-  --source-account $ACCOUNT \
-  --network testnet \
-  -- extend_ttl --agreement-id <hex>
-```
-
-The call is deliberately unauthenticated: it cannot read or change agreement
-state, only postpone archival. Requiring a specific signer would mean an
-agreement could be lost because the one party able to save it was unavailable.
+Soroban archives persistent ledger entries once their TTL expires, so an
+agreement that is never touched would eventually be lost. Every state-mutating
+entrypoint renews the agreement's TTL to ~30 days automatically. Agreements
+that stay idle longer than that — a long delivery window, a stalled dispute —
+need `extend_agreement_ttl` called before the TTL runs out; any address may
+call it, and the caller pays the rent.
 
 ### Tech stack
 
