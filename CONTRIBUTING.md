@@ -103,13 +103,17 @@ cd contracts/trellis_core
 cargo test
 ```
 
-Exactly 5 tests should pass:
+Exactly 9 tests should pass:
 
 1. `test_happy_path` — covers `init -> lock_funds -> submit_work -> approve_and_release`, including payer/payee/contract balances.
 2. `test_double_init_fails` — verifies the double-init guard returns `TrellisError::AlreadyInitialized` for an existing agreement ID.
 3. `test_dispute_and_refund_to_payer` — covers a payee-raised dispute where the resolver refunds the payer.
 4. `test_cancel_unfunded_milestone` — verifies an unfunded milestone can be cancelled once and cannot be cancelled a second time.
 5. `test_get_agreement` — verifies `get_agreement` returns the stored agreement and rejects an unknown agreement ID.
+6. `test_init_empty_milestones_fails` — verifies `init` rejects an empty `milestones` vector with `TrellisError::EmptyMilestoneSet` and leaves no storage entry behind.
+7. `test_payer_as_resolver_rejected` — verifies `init` rejects `dispute_resolver == payer` with `TrellisError::ResolverCannotBeParty`.
+8. `test_payee_as_resolver_rejected` — verifies `init` rejects `dispute_resolver == payee` with `TrellisError::ResolverCannotBeParty`.
+9. `test_dispute_raised_event_includes_caller` — verifies the `dispute_raised` event data carries `caller` for both the payer-raised and payee-raised paths.
 
 If any baseline test fails, open an issue before continuing. Do not start feature, bug-fix, or documentation work on a broken baseline unless your assigned issue is specifically about that failure.
 

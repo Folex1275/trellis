@@ -4,6 +4,7 @@ use soroban_sdk::{contracttype, Address, BytesN, String, Vec};
 // EscrowStatus — lifecycle state machine for an escrow agreement / milestone
 // ---------------------------------------------------------------------------
 #[contracttype]
+#[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EscrowStatus {
     /// Agreement created but no funds deposited yet.
@@ -60,8 +61,16 @@ pub struct Agreement {
     /// SAC or custom token contract used for payments.
     pub token: Address,
     /// Ordered list of milestones that make up this agreement.
+    ///
+    /// Must be non-empty — `init` rejects a `milestones` vector with zero
+    /// entries, since such an agreement could never transition through any
+    /// state.
     pub milestones: Vec<Milestone>,
     /// Trusted third-party address authorised to resolve disputes.
+    ///
+    /// Must be distinct from both `payer` and `payee` — `init` rejects a
+    /// resolver equal to either party, since that would let one side
+    /// unilaterally decide its own disputes.
     pub dispute_resolver: Address,
     /// Sum of every milestone's `amount`, pre-computed once in `init`.
     ///

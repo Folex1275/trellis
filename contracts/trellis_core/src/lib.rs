@@ -33,11 +33,16 @@ impl TrellisContract {
     /// does not override per-milestone status on init so the caller controls
     /// the initial state of each deliverable.
     ///
+    /// `milestones` must be non-empty and `dispute_resolver` must be distinct
+    /// from both `payer` and `payee` — see the `Errors` below.
+    ///
     /// # Errors
     /// - [`TrellisError::AlreadyInitialized`] if an agreement with this ID
     ///   already exists in storage.
-    /// - [`TrellisError::InvalidMilestone`] if any milestone's `amount` is
-    ///   zero or negative.
+    /// - [`TrellisError::EmptyMilestoneSet`] if `milestones` is empty — such
+    ///   an agreement could never transition through any state.
+    /// - [`TrellisError::ResolverCannotBeParty`] if `dispute_resolver` equals
+    ///   `payer` or `payee` — the resolver must be a neutral third party.
     pub fn init(
         env: Env,
         agreement_id: BytesN<32>,
@@ -53,7 +58,13 @@ impl TrellisContract {
             return Err(TrellisError::AlreadyInitialized);
         }
 
-        let total_amount = validate_milestones(&milestones)?;
+        if milestones.is_empty() {
+            return Err(TrellisError::EmptyMilestoneSet);
+        }
+
+        if dispute_resolver == payer || dispute_resolver == payee {
+            return Err(TrellisError::ResolverCannotBeParty);
+        }
 
         let agreement = Agreement {
             agreement_id: agreement_id.clone(),
@@ -88,8 +99,8 @@ impl TrellisContract {
         let mut agreement = storage::read_agreement(&env, &agreement_id)?;
         agreement.payer.require_auth();
 
-        // Read milestone by positional index — clone to avoid borrow overlap
-        // with the subsequent `.set()` call on the same Vec.
+        // Read the milestone value, mutate it, and write it back to the same
+        // slot without cloning the original entry.
         let mut milestone = agreement
             .milestones
             .get(milestone_id)
@@ -106,12 +117,13 @@ impl TrellisContract {
             &milestone.amount,
         );
 
-        // Mutate milestone and write back at the same index.
+        // Mutate the milestone value and persist it back to the agreement.
+        let amount = milestone.amount;
         milestone.status = EscrowStatus::Funded;
-        agreement.milestones.set(milestone_id, milestone.clone());
+        agreement.milestones.set(milestone_id, milestone);
         storage::write_agreement(&env, &agreement_id, &agreement);
 
-        events::funds_locked(&env, agreement_id, milestone_id, milestone.amount);
+        events::funds_locked(&env, agreement_id, milestone_id, amount);
 
         Ok(())
     }
@@ -189,11 +201,12 @@ impl TrellisContract {
             &milestone.amount,
         );
 
+        let amount = milestone.amount;
         milestone.status = EscrowStatus::Completed;
-        agreement.milestones.set(milestone_id, milestone.clone());
+        agreement.milestones.set(milestone_id, milestone);
         storage::write_agreement(&env, &agreement_id, &agreement);
 
-        events::funds_released(&env, agreement_id, milestone_id, milestone.amount);
+        events::funds_released(&env, agreement_id, milestone_id, amount);
 
         Ok(())
     }
@@ -243,7 +256,7 @@ impl TrellisContract {
         agreement.milestones.set(milestone_id, milestone);
         storage::write_agreement(&env, &agreement_id, &agreement);
 
-        events::dispute_raised(&env, agreement_id, milestone_id);
+        events::dispute_raised(&env, agreement_id, milestone_id, caller);
 
         Ok(())
     }
@@ -379,10 +392,7 @@ impl TrellisContract {
     /// # Errors
     /// Returns [`TrellisError::AgreementNotFound`] if no agreement exists for
     /// the given `agreement_id`.
-    pub fn get_agreement(
-        env: Env,
-        agreement_id: BytesN<32>,
-    ) -> Result<Agreement, TrellisError> {
+    pub fn get_agreement(env: Env, agreement_id: BytesN<32>) -> Result<Agreement, TrellisError> {
         storage::read_agreement(&env, &agreement_id)
     }
 
