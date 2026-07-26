@@ -1,49 +1,17 @@
-import { useEffect, useState } from 'react';
-import type { WalletState } from './wallet';
-import { subscribeToWallet, connectWallet, disconnectWallet } from './wallet';
+import { useWallet } from '../context/WalletContext';
 
-export function useWallet() {
-  const [walletState, setWalletState] = useState<WalletState>({
-    connected: false,
-    publicKey: null,
-    address: null,
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const unsubscribe = subscribeToWallet(setWalletState);
-    return unsubscribe;
-  }, []);
-
-  const connect = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await connectWallet();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect wallet');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const disconnect = async () => {
-    setLoading(true);
-    try {
-      await disconnectWallet();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to disconnect wallet');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+export function useWalletLegacy() {
+  const { connected, publicKey, wrongNetwork, connecting, connect, disconnect, error } = useWallet();
   return {
-    ...walletState,
-    loading,
+    connected,
+    publicKey,
+    address: publicKey,
+    wrongNetwork,
+    loading: connecting,
     error,
-    connect,
-    disconnect,
+    connect: async () => { await connect(); },
+    disconnect: async () => { disconnect(); },
   };
 }
+
+export { useWalletLegacy as useWallet };

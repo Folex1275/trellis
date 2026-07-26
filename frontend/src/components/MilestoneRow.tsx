@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import type { Milestone, Agreement, EscrowStatus } from '../lib/soroban';
-import type { WalletState } from '../lib/wallet';
 
-interface WalletLike extends WalletState {
+interface WalletLike {
   connected: boolean;
+  publicKey: string | null;
   loading: boolean;
   error: string | null;
 }
@@ -33,8 +33,8 @@ export default function MilestoneRow({ milestone, agreement, wallet }: Milestone
     return colors[status];
   };
 
-  const isUserPayer = wallet.address === agreement.payer;
-  const isUserPayee = wallet.address === agreement.payee;
+  const isUserPayer = wallet.publicKey === agreement.payer;
+  const isUserPayee = wallet.publicKey === agreement.payee;
 
   const getAvailableActions = () => {
     const actions: Array<{ label: string; action: () => void; requiresWallet?: boolean }> = [];
