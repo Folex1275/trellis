@@ -3,9 +3,24 @@ import { ACTIVE_NETWORK, explorerBaseUrl, networkLabel } from '../lib/explorer'
 import { ExplorerLink } from './ExplorerLink'
 
 function Navbar() {
+  const wallet = useWallet();
+  const navigate = useNavigateRouter();
+
+  const handleConnectWallet = async () => {
+    try {
+      await wallet.connect();
+    } catch {
+      // Error is handled in useWallet hook
+    }
+  };
+
+  const handleDisconnectWallet = async () => {
+    await wallet.disconnect();
+  };
+
   return (
     <nav className="bg-[#0A0E17] border-b border-navy-700 px-6 py-4 flex items-center justify-between">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
         <span className="text-cyan-400 text-xl font-bold tracking-tight">Trellis</span>
         <span className="hidden sm:inline text-gray-500 text-sm">Trustless Milestone Escrow</span>
       </div>
@@ -32,7 +47,7 @@ function Navbar() {
         </button>
       </div>
     </nav>
-  )
+  );
 }
 
-export default Navbar
+export default Navbar;

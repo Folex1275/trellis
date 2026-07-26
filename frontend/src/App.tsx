@@ -5,6 +5,24 @@ import { CONTRACT_ID } from './lib/config'
 import { explorerBaseUrl, networkLabel } from './lib/explorer'
 
 function App() {
+  const route = useRoute();
+
+  useEffect(() => {
+    initializeRouter();
+  }, []);
+
+  const renderPage = () => {
+    switch (route.page) {
+      case 'status':
+        return <StatusPage />;
+      case 'create':
+        return <CreatePage />;
+      case 'home':
+      default:
+        return <HomePage />;
+    }
+  };
+
   return (
     <div className="relative min-h-screen text-gray-200">
       {/* Animated particle network background */}
@@ -54,7 +72,7 @@ function App() {
         </footer>
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
