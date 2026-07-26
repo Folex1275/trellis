@@ -134,6 +134,10 @@ trellis submit-work \
 
 > Must be signed by the payee identity
 
+`--proof-uri` is optional — omit it to mark the milestone submitted without a
+proof link. Do not pass an empty string: the contract stores `proof_uri` as an
+`Option`, so "no proof" is the absent flag, not `""`.
+
 ### Approve and release payment
 
 ```bash
@@ -220,12 +224,64 @@ trellis status --agreement-id 01010101010101010101010101010101010101010101010101
 |---|---|---|
 | `init` | ✅ Verified on testnet | Agreement created on-chain |
 | `status` | ✅ Verified on testnet | Returns full agreement state as JSON |
-| `lock-funds` | ✅ Implemented | Requires payer USDC balance |
-| `submit-work` | ✅ Implemented | Requires milestone in Funded state |
-| `approve-release` | ✅ Implemented | Releases funds to payee |
-| `raise-dispute` | ✅ Implemented | Callable by payer or payee |
-| `resolve-dispute` | ✅ Implemented | Callable by dispute resolver only |
+| `lock-funds` | ✅ Verified on testnet | Funds successfully locked in escrow (Issue #7) |
+| `submit-work` | ✅ Verified on testnet | Work proof submitted and milestone transitioned to WorkSubmitted (Issue #8) |
+| `approve-release` | ✅ Verified on testnet | Funds released to payee, milestone marked Completed (Issue #8) |
+| `raise-dispute` | ✅ Verified on testnet | Dispute raised and milestone transitioned to Disputed (Issue #9) |
+| `resolve-dispute` | ✅ Verified on testnet (both paths) | Resolves to both Refunded (payer) and Completed (payee) states (Issue #9) |
 | `cancel-milestone` | ✅ Implemented | Cancels unfunded milestones |
+
+---
+
+---
+
+## End-to-End Test Flows (Verified on Testnet)
+
+### Flow 1: Happy Path — Lock → Submit → Approve (Issues #7 & #8)
+
+**Objective:** Verify the complete payment flow from initial funding through approval and release.
+
+**Steps:**
+1. Create agreement with payer, payee, resolver identities
+2. Fund milestone 0 (payer calls `lock-funds`)
+3. Submit work proof (payee calls `submit-work`)
+4. Approve and release (payer calls `approve-release`)
+
+**Verification:**
+- ✅ Milestone transitions: `Pending` → `Funded` → `WorkSubmitted` → `Completed`
+- ✅ Token transfer confirmed from payer to contract, then to payee
+- ✅ Events emitted at each stage (queryable via event filters)
+- ✅ `status` returns `Completed` state with proof URI recorded
+
+### Flow 2: Dispute Path — Raise → Resolve as Refund (Issue #9)
+
+**Objective:** Verify dispute resolution when resolver rules in payer's favor.
+
+**Steps:**
+1. Create and fund agreement as above
+2. Dispute raised by payee (payer calls `raise-dispute` with payee caller)
+3. Resolver ruling: refund to payer (resolver calls `resolve-dispute --refund-to-payer true`)
+
+**Verification:**
+- ✅ Milestone transitions: `Funded` → `Disputed` → `Refunded`
+- ✅ Funds returned to payer's address
+- ✅ Payee does not receive payment
+- ✅ Events show dispute resolution with refund outcome
+
+### Flow 3: Dispute Path — Raise → Resolve as Release (Issue #9)
+
+**Objective:** Verify dispute resolution when resolver rules in payee's favor.
+
+**Steps:**
+1. Create and fund agreement
+2. Work submitted, then dispute raised by payer (payer calls `raise-dispute` with caller=payer)
+3. Resolver ruling: release to payee (resolver calls `resolve-dispute --refund-to-payer false`)
+
+**Verification:**
+- ✅ Milestone transitions: `WorkSubmitted` → `Disputed` → `Completed`
+- ✅ Funds released to payee's address
+- ✅ Payer does not recover funds
+- ✅ Events show dispute resolution with payee-win outcome
 
 ---
 
@@ -242,3 +298,8 @@ trellis status --agreement-id 01010101010101010101010101010101010101010101010101
 
 - **Windows paths:** On Windows Git Bash, use the full path to the binary:
   `C:\Users\<you>\Documents\Trellis\target\release\trellis.exe`
+
+- **Native RPC client (#11):** The current implementation falls back to the stellar CLI
+  for transaction signing and submission. A full native Rust implementation would require
+  integrating the Stellar SDK for key management, transaction envelope building, and
+  signing. The structure is in place for future native implementation in `cli/trellis_cli/src/rpc.rs`.

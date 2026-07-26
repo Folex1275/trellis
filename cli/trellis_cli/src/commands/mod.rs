@@ -59,8 +59,9 @@ pub enum Commands {
         milestone_id: u32,
 
         /// URI pointing to delivery proof (e.g. "ipfs://...", GitHub PR URL).
+        /// Omit the flag to submit without a proof link.
         #[arg(long)]
-        proof_uri: String,
+        proof_uri: Option<String>,
     },
 
     /// Approve submitted work and release funds to the payee.
@@ -252,17 +253,30 @@ fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) {
 /// Final call signature:
 /// ```
 /// stellar contract invoke … -- submit_work
-///   --agreement-id <hex> --milestone-id <u32> --proof-uri <string>
+///   --agreement-id <hex> --milestone-id <u32> [--proof-uri <string>]
 /// ```
-fn run_submit_work(config: &Config, agreement_id: String, milestone_id: u32, proof_uri: String) {
-    let args = vec![
+///
+/// The contract types `proof_uri` as `Option<String>`, so omitting the flag
+/// sends `None` — the canonical "no proof submitted" value. Passing an empty
+/// string would create a `Some("")`, which the contract does not treat as
+/// absent, so the flag is dropped entirely rather than sent empty.
+fn run_submit_work(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    proof_uri: Option<String>,
+) {
+    let mut args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
         "--milestone-id".to_string(),
         milestone_id.to_string(),
-        "--proof-uri".to_string(),
-        format!("\"{}\"", proof_uri),
     ];
+
+    if let Some(uri) = proof_uri.filter(|u| !u.is_empty()) {
+        args.push("--proof-uri".to_string());
+        args.push(format!("\"{}\"", uri));
+    }
 
     let out = RpcClient::invoke(config, "submit_work", &args);
     print_output(&out);
@@ -388,12 +402,12 @@ fn run_status(config: &Config, agreement_id: String) {
 /// - `id`        – its 0-based position in the list
 /// - `amount`    – the parsed amount
 /// - `status`    – `{"Pending":null}` (XDR union tag for EscrowStatus::Pending)
-/// - `proof_uri` – empty string (no proof submitted yet)
+/// - `proof_uri` – `null` (XDR `Void`, i.e. `None` — no proof submitted yet)
 ///
 /// Example output for `"1000,2000"`:
 /// ```json
-/// [{"id":0,"amount":1000,"status":{"Pending":null},"proof_uri":""},
-///  {"id":1,"amount":2000,"status":{"Pending":null},"proof_uri":""}]
+/// [{"id":0,"amount":1000,"status":{"Pending":null},"proof_uri":null},
+///  {"id":1,"amount":2000,"status":{"Pending":null},"proof_uri":null}]
 /// ```
 fn build_milestones_json(csv: &str) -> String {
     let entries: Vec<String> = csv
@@ -403,7 +417,7 @@ fn build_milestones_json(csv: &str) -> String {
             let trimmed = part.trim();
             match trimmed.parse::<u64>() {
                 Ok(amount) => Some(format!(
-                    r#"{{"id":{idx},"amount":"{amount}","status":{{"Pending":null}},"proof_uri":""}}"#,
+                    r#"{{"id":{idx},"amount":"{amount}","status":{{"Pending":null}},"proof_uri":null}}"#,
                 )),
                 Err(_) => {
                     eprintln!(

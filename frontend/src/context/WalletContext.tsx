@@ -1,0 +1,202 @@
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import {
+  isFreighterInstalled,
+  connectWallet,
+  getPublicKey,
+  getNetworkPassphrase,
+  isAppAllowed,
+} from '../lib/wallet';
+import { NETWORK_PASSPHRASE } from '../lib/config';
+
+export type WalletStatus =
+  | 'detecting'
+  | 'unavailable'
+  | 'disconnected'
+  | 'connecting'
+  | 'connected';
+
+interface WalletContextValue {
+  status: WalletStatus;
+  publicKey: string | null;
+  wrongNetwork: boolean;
+  error: string | null;
+  connected: boolean;
+  connecting: boolean;
+  connect(): Promise<void>;
+  disconnect(): void;
+  recheckInstall(): void;
+  clearError(): void;
+}
+
+const WalletContext = createContext<WalletContextValue | null>(null);
+
+const STORAGE_KEY = 'trellis_wallet_connected';
+
+function readIntent(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeIntent(value: boolean): void {
+  try {
+    if (value) localStorage.setItem(STORAGE_KEY, 'true');
+    else localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+export function WalletProvider({ children }: { children: ReactNode }) {
+  const [installed, setInstalled] = useState<boolean | null>(null);
+  const [phase, setPhase] = useState<'idle' | 'connecting' | 'connected'>('idle');
+  const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [networkPassphrase, setNetworkPassphrase] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [detectNonce, setDetectNonce] = useState(0);
+
+  const status: WalletStatus =
+    phase === 'connected'
+      ? 'connected'
+      : phase === 'connecting'
+        ? 'connecting'
+        : installed === null
+          ? 'detecting'
+          : installed
+            ? 'disconnected'
+            : 'unavailable';
+
+  const refreshNetwork = useCallback(async () => {
+    const passphrase = await getNetworkPassphrase();
+    setNetworkPassphrase(passphrase);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    const apply = (fn: () => void) => {
+      if (!signal.aborted) fn();
+    };
+
+    void (async () => {
+      try {
+        apply(() => setInstalled(null));
+
+        const found = await isFreighterInstalled(signal);
+        if (signal.aborted) return;
+        apply(() => setInstalled(found));
+
+        if (!found) {
+          apply(() => {
+            setPublicKey(null);
+            setPhase('idle');
+            setNetworkPassphrase(null);
+          });
+          return;
+        }
+
+        if (!readIntent()) {
+          apply(() => setPhase('idle'));
+          return;
+        }
+
+        const allowed = await isAppAllowed();
+        if (signal.aborted) return;
+        if (!allowed) {
+          writeIntent(false);
+          apply(() => { setPublicKey(null); setPhase('idle'); });
+          return;
+        }
+
+        const address = await getPublicKey();
+        if (signal.aborted) return;
+        if (!address) {
+          writeIntent(false);
+          apply(() => { setPublicKey(null); setPhase('idle'); });
+          return;
+        }
+
+        apply(() => {
+          setPublicKey(address);
+          setPhase('connected');
+        });
+        await refreshNetwork();
+      } catch {
+        apply(() => {
+          setInstalled((prev) => (prev === null ? false : prev));
+          setPhase('idle');
+        });
+      }
+    })();
+
+    return () => controller.abort();
+  }, [detectNonce, refreshNetwork]);
+
+  const connect = useCallback(async () => {
+    setError(null);
+    setPhase('connecting');
+
+    const result = await connectWallet();
+
+    if (!result.ok) {
+      writeIntent(false);
+      setPublicKey(null);
+      setError(result.error.message);
+      setPhase('idle');
+      return;
+    }
+
+    setInstalled(true);
+    setPublicKey(result.value);
+    setPhase('connected');
+    writeIntent(true);
+    await refreshNetwork();
+  }, [refreshNetwork]);
+
+  const disconnect = useCallback(() => {
+    writeIntent(false);
+    setPublicKey(null);
+    setNetworkPassphrase(null);
+    setPhase('idle');
+    setError(null);
+  }, []);
+
+  const recheckInstall = useCallback(() => {
+    setError(null);
+    setDetectNonce((n) => n + 1);
+  }, []);
+
+  const clearError = useCallback(() => setError(null), []);
+
+  const wrongNetwork =
+    phase === 'connected' &&
+    !!NETWORK_PASSPHRASE &&
+    networkPassphrase !== null &&
+    networkPassphrase !== NETWORK_PASSPHRASE;
+
+  const value = useMemo<WalletContextValue>(
+    () => ({
+      status,
+      publicKey,
+      wrongNetwork,
+      error,
+      connected: status === 'connected',
+      connecting: status === 'connecting',
+      connect,
+      disconnect,
+      recheckInstall,
+      clearError,
+    }),
+    [status, publicKey, wrongNetwork, error, connect, disconnect, recheckInstall, clearError],
+  );
+
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
+}
+
+export function useWallet(): WalletContextValue {
+  const ctx = useContext(WalletContext);
+  if (!ctx) throw new Error('useWallet must be used within WalletProvider');
+  return ctx;
+}
