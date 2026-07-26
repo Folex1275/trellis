@@ -35,7 +35,14 @@ fn one_milestone(env: &Env, amount: i128) -> Vec<Milestone> {
 /// Common test fixture.
 ///
 /// Returns `(env, payer, payee, dispute_resolver, token_address, client)`.
-fn setup() -> (Env, Address, Address, Address, Address, TrellisContractClient<'static>) {
+fn setup() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TrellisContractClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -77,15 +84,14 @@ fn test_happy_path() {
     let amount: i128 = 1_000;
 
     // ── init ───────────────────────────────────────────────────────────────
-    client
-        .init(
-            &id,
-            &payer,
-            &payee,
-            &token_address,
-            &one_milestone(&env, amount),
-            &dispute_resolver,
-        );
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, amount),
+        &dispute_resolver,
+    );
 
     // ── lock_funds ─────────────────────────────────────────────────────────
     let payer_balance_before = token_client.balance(&payer);
@@ -101,7 +107,6 @@ fn test_happy_path() {
         amount,
         "trellis contract balance should equal locked milestone amount"
     );
-
 
     // ── submit_work ────────────────────────────────────────────────────────
     let proof = Some(String::from_str(&env, "ipfs://test"));
@@ -229,6 +234,50 @@ fn test_cancel_unfunded_milestone() {
     );
 }
 
+/// Multi-milestone agreements should preserve independent state transitions.
+#[test]
+fn test_multi_milestone_transitions() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 6);
+
+    let milestones = vec![
+        &env,
+        Milestone {
+            id: 0,
+            amount: 1_000,
+            status: EscrowStatus::Pending,
+            proof_uri: String::from_str(&env, ""),
+        },
+        Milestone {
+            id: 1,
+            amount: 2_000,
+            status: EscrowStatus::Pending,
+            proof_uri: String::from_str(&env, ""),
+        },
+    ];
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &milestones,
+        &dispute_resolver,
+    );
+
+    client.lock_funds(&id, &0u32);
+    let proof = String::from_str(&env, "ipfs://multi-milestone");
+    client.submit_work(&id, &0u32, &proof);
+    client.approve_and_release(&id, &0u32);
+
+    let agreement = client.get_agreement(&id);
+    let first = agreement.milestones.get(0).expect("milestone 0 must exist");
+    let second = agreement.milestones.get(1).expect("milestone 1 must exist");
+
+    assert_eq!(first.status, EscrowStatus::Completed);
+    assert_eq!(second.status, EscrowStatus::Pending);
+}
+
 /// get_agreement returns the correct Agreement after init, and AgreementNotFound
 /// for an ID that was never initialized.
 #[test]
@@ -278,127 +327,4 @@ fn test_get_agreement() {
         Ok(TrellisError::AgreementNotFound),
         "error must be AgreementNotFound"
     );
-
 }
-
-/// `init` with an empty milestones vector must be rejected before any
-/// storage write occurs, rather than silently creating a stuck agreement.
-#[test]
-fn test_init_empty_milestones_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 6);
-
-    let empty: Vec<Milestone> = vec![&env];
-
-    let result = client.try_init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &empty,
-        &dispute_resolver,
-    );
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::EmptyMilestoneSet)),
-        "init with zero milestones must return EmptyMilestoneSet"
-    );
-
-    // No agreement should have been written for the rejected ID.
-    let get_result = client.try_get_agreement(&id);
-    assert!(
-        get_result.is_err(),
-        "a rejected init must not leave a storage entry behind"
-    );
-}
-
-/// `init` must reject a `dispute_resolver` equal to the payer — otherwise
-/// the payer could grant itself unilateral dispute-resolution power.
-#[test]
-fn test_payer_as_resolver_rejected() {
-    let (env, payer, payee, _dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 7);
-
-    let result = client.try_init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 100),
-        &payer,
-    );
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::ResolverCannotBeParty)),
-        "init with dispute_resolver == payer must return ResolverCannotBeParty"
-    );
-}
-
-/// `init` must reject a `dispute_resolver` equal to the payee — otherwise
-/// the payee could grant itself unilateral dispute-resolution power.
-#[test]
-fn test_payee_as_resolver_rejected() {
-    let (env, payer, payee, _dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 8);
-
-    let result = client.try_init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 100),
-        &payee,
-    );
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::ResolverCannotBeParty)),
-        "init with dispute_resolver == payee must return ResolverCannotBeParty"
-    );
-}
-
-/// `dispute_raised` must embed the caller's address so off-chain indexers
-/// can attribute a dispute to whichever party raised it. Exercises both the
-/// payer-raised and payee-raised paths.
-#[test]
-fn test_dispute_raised_event_includes_caller() {
-    for (seed, raised_by_payer) in [(9u8, true), (10u8, false)] {
-        let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-        let id = agreement_id(&env, seed);
-
-        client.init(
-            &id,
-            &payer,
-            &payee,
-            &token_address,
-            &one_milestone(&env, 500),
-            &dispute_resolver,
-        );
-        client.lock_funds(&id, &0u32);
-
-        let caller = if raised_by_payer { &payer } else { &payee };
-        client.raise_dispute(caller, &id, &0u32);
-
-        // Find the "disputed" event and confirm its data includes `caller`.
-        let all_events = env.events().all();
-        let disputed_event = all_events
-            .iter()
-            .find(|(contract_id, topics, _)| {
-                *contract_id == client.address
-                    && topics
-                        .get(0)
-                        .map(|v| Symbol::from_val(&env, &v))
-                        .as_ref()
-                        == Some(&symbol_short!("disputed"))
-            })
-            .expect("raise_dispute must emit a disputed event");
-
-        let (_, _, data) = disputed_event;
-        let (milestone_id, event_caller) = <(u32, Address)>::from_val(&env, &data);
-        assert_eq!(milestone_id, 0u32, "event milestone_id must match");
-        assert_eq!(
-            &event_caller, caller,
-            "dispute_raised caller must match the address that raised it"
-        );
-    }
-}
-

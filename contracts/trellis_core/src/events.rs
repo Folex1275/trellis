@@ -30,12 +30,7 @@ use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
 ///
 /// Topics: `("created", agreement_id)`
 /// Data:   `(payer, payee)`
-pub fn agreement_created(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    payer: Address,
-    payee: Address,
-) {
+pub fn agreement_created(env: &Env, agreement_id: BytesN<32>, payer: Address, payee: Address) {
     env.events().publish(
         (symbol_short!("created"), agreement_id.clone()),
         (payer, payee),
@@ -46,12 +41,7 @@ pub fn agreement_created(
 ///
 /// Topics: `("locked", agreement_id)`
 /// Data:   `(milestone_id, amount)`
-pub fn funds_locked(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    milestone_id: u32,
-    amount: i128,
-) {
+pub fn funds_locked(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, amount: i128) {
     env.events().publish(
         (symbol_short!("locked"), agreement_id.clone()),
         (milestone_id, amount),
@@ -81,12 +71,7 @@ pub fn work_submitted(
 ///
 /// Topics: `("released", agreement_id)`
 /// Data:   `(milestone_id, amount)`
-pub fn funds_released(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    milestone_id: u32,
-    amount: i128,
-) {
+pub fn funds_released(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, amount: i128) {
     env.events().publish(
         (symbol_short!("released"), agreement_id.clone()),
         (milestone_id, amount),
@@ -96,17 +81,8 @@ pub fn funds_released(
 /// Emitted when either party raises a dispute on a funded or work-submitted milestone.
 ///
 /// Topics: `("disputed", agreement_id)`
-/// Data:   `(milestone_id, caller)`
-///
-/// `caller` is the address that raised the dispute — either the agreement's
-/// payer or payee — so off-chain indexers can attribute the dispute to a
-/// party without a secondary RPC call.
-pub fn dispute_raised(
-    env: &Env,
-    agreement_id: BytesN<32>,
-    milestone_id: u32,
-    caller: Address,
-) {
+/// Data:   `milestone_id`
+pub fn dispute_raised(env: &Env, agreement_id: BytesN<32>, milestone_id: u32) {
     env.events().publish(
         (symbol_short!("disputed"), agreement_id.clone()),
         (milestone_id, caller),

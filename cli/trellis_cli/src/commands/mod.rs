@@ -139,7 +139,15 @@ pub fn dispatch(cmd: Commands, config: &Config) {
             token,
             resolver,
             milestones,
-        } => run_init(config, agreement_id, payer, payee, token, resolver, milestones),
+        } => run_init(
+            config,
+            agreement_id,
+            payer,
+            payee,
+            token,
+            resolver,
+            milestones,
+        ),
 
         Commands::LockFunds {
             agreement_id,
@@ -304,12 +312,7 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
 /// `caller` is passed explicitly because the contract checks it against
 /// both `agreement.payer` and `agreement.payee` before calling
 /// `caller.require_auth()`, so either party can autonomously open a dispute.
-fn run_raise_dispute(
-    config: &Config,
-    agreement_id: String,
-    milestone_id: u32,
-    caller: String,
-) {
+fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
