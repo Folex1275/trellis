@@ -97,9 +97,7 @@
                           "key": {
                             "symbol": "proof_uri"
                           },
-                          "val": {
-                            "string": ""
-                          }
+                          "val": "void"
                         },
                         {
                           "key": {
@@ -351,9 +349,7 @@
                                 "key": {
                                   "symbol": "proof_uri"
                                 },
-                                "val": {
-                                  "string": ""
-                                }
+                                "val": "void"
                               },
                               {
                                 "key": {
@@ -402,7 +398,7 @@
             },
             "ext": "v0"
           },
-          4095
+          1555200
         ]
       ],
       [

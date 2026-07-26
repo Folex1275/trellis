@@ -1,5 +1,6 @@
-import { useWallet } from '../lib/useWallet';
-import { useNavigate as useNavigateRouter } from '../lib/router';
+import { CONTRACT_ID } from '../lib/config'
+import { ACTIVE_NETWORK, explorerBaseUrl, networkLabel } from '../lib/explorer'
+import { ExplorerLink } from './ExplorerLink'
 
 function Navbar() {
   const wallet = useWallet();
@@ -24,17 +25,25 @@ function Navbar() {
         <span className="hidden sm:inline text-gray-500 text-sm">Trustless Milestone Escrow</span>
       </div>
       <div className="flex items-center gap-4">
-        {wallet.connected && (
-          <div className="hidden sm:block text-gray-400 text-sm">
-            {wallet.address?.substring(0, 8)}...{wallet.address?.substring(wallet.address.length - 6)}
-          </div>
-        )}
-        <button
-          onClick={wallet.connected ? handleDisconnectWallet : handleConnectWallet}
-          disabled={wallet.loading}
-          className="bg-cyan-400 text-navy-900 font-semibold px-5 py-2 rounded-lg text-sm hover:bg-cyan-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        {/* Network badge doubles as a link to the explorer for this network. */}
+        <a
+          href={explorerBaseUrl()}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Browse the Stellar ${networkLabel()} on Stellar Expert`}
+          className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-cyan-400/30 px-3 py-1 text-xs font-medium text-cyan-400 transition-colors hover:border-cyan-400/60 hover:bg-cyan-400/10"
         >
-          {wallet.loading ? 'Loading...' : wallet.connected ? 'Disconnect' : 'Connect Wallet'}
+          <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" aria-hidden="true" />
+          {networkLabel(ACTIVE_NETWORK)}
+        </a>
+        {/* The deployed escrow contract — verifiable before connecting a wallet. */}
+        <ExplorerLink
+          type="contract"
+          value={CONTRACT_ID}
+          className="hidden md:inline-flex text-xs"
+        />
+        <button className="bg-cyan-400 text-navy-900 font-semibold px-5 py-2 rounded-lg text-sm hover:bg-cyan-300 transition-colors">
+          Connect Wallet
         </button>
       </div>
     </nav>
