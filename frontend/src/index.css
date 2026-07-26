@@ -3,7 +3,21 @@
 @tailwind utilities;
 
 body {
-  background-color: #0A0E17;
-  color: #E2E8F0;
   font-family: 'Inter', sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+:root.light {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-navy-900 text-gray-200;
+}
+
+:root.light body {
+  @apply bg-white text-gray-900;
 }
