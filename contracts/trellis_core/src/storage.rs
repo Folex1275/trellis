@@ -118,7 +118,7 @@ pub fn read_agreement(env: &Env, id: &BytesN<32>) -> Result<Agreement, TrellisEr
         .ok_or(TrellisError::AgreementNotFound)?;
 
     // Reaching here proves the entry exists, so the bump is safe.
-    extend_ttl(env, &key);
+    bump_ttl(env, id);
 
     Ok(agreement)
 }
@@ -132,26 +132,4 @@ pub fn has_agreement(env: &Env, id: &BytesN<32>) -> bool {
     env.storage()
         .persistent()
         .has(&DataKey::Agreement(id.clone()))
-}
-
-/// Refresh an agreement's TTL without reading or modifying its contents.
-///
-/// This is the escape hatch for agreements that sit idle longer than their
-/// TTL — a milestone with a long delivery window, or a dispute in arbitration.
-/// Without it, an agreement could expire simply because nobody happened to
-/// touch it in time.
-///
-/// # Errors
-/// Returns [`TrellisError::AgreementNotFound`] when no record exists for `id`,
-/// rather than letting the host trap on a missing key.
-pub fn extend_agreement_ttl(env: &Env, id: &BytesN<32>) -> Result<(), TrellisError> {
-    let key = DataKey::Agreement(id.clone());
-
-    if !env.storage().persistent().has(&key) {
-        return Err(TrellisError::AgreementNotFound);
-    }
-
-    extend_ttl(env, &key);
-
-    Ok(())
 }
