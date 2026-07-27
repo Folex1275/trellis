@@ -274,13 +274,13 @@ fn test_multi_milestone_transitions() {
             id: 0,
             amount: 1_000,
             status: EscrowStatus::Pending,
-            proof_uri: String::from_str(&env, ""),
+            proof_uri: None,
         },
         Milestone {
             id: 1,
             amount: 2_000,
             status: EscrowStatus::Pending,
-            proof_uri: String::from_str(&env, ""),
+            proof_uri: None,
         },
     ];
 
@@ -294,7 +294,7 @@ fn test_multi_milestone_transitions() {
     );
 
     client.lock_funds(&id, &0u32);
-    let proof = String::from_str(&env, "ipfs://multi-milestone");
+    let proof = Some(String::from_str(&env, "ipfs://multi-milestone"));
     client.submit_work(&id, &0u32, &proof);
     client.approve_and_release(&id, &0u32);
 
