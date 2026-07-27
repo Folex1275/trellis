@@ -228,7 +228,7 @@ export function NetworkBackground() {
     <canvas
       ref={canvasRef}
       className="absolute inset-0 z-0"
-      style={{ display: 'block', cursor: 'none' }}
+      style={{ display: 'block' }}
     />
   )
 }

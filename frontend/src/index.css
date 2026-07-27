@@ -21,3 +21,10 @@ body {
 :root.light body {
   @apply bg-white text-gray-900;
 }
+
+/* Single source-of-truth cursor blink keyframe used by TypingText.
+   Defined here so inline styles and Tailwind classes do not compete. */
+@keyframes trellis-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
