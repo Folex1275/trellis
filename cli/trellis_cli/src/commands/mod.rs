@@ -124,13 +124,24 @@ pub enum Commands {
         #[arg(long)]
         agreement_id: String,
     },
+
+    /// Query the current status of a single milestone (cheaper than fetching the full agreement).
+    MilestoneStatus {
+        /// Agreement ID (hex-encoded, 64 chars).
+        #[arg(long)]
+        agreement_id: String,
+
+        /// Zero-based index of the milestone to query.
+        #[arg(long)]
+        milestone_id: u32,
+    },
 }
 
 // ---------------------------------------------------------------------------
 // Dispatch — route each command to its handler
 // ---------------------------------------------------------------------------
 
-pub fn dispatch(cmd: Commands, config: &Config) {
+pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
     match cmd {
         Commands::Init {
             agreement_id,
@@ -183,6 +194,11 @@ pub fn dispatch(cmd: Commands, config: &Config) {
         } => run_cancel_milestone(config, agreement_id, milestone_id),
 
         Commands::Status { agreement_id } => run_status(config, agreement_id),
+
+        Commands::MilestoneStatus {
+            agreement_id,
+            milestone_id,
+        } => run_milestone_status(config, agreement_id, milestone_id),
     }
 }
 
@@ -257,11 +273,10 @@ fn run_init(
     resolver: String,
     milestones_csv: String,
 ) {
-    if let Err(e) = validate_agreement_id(&agreement_id) {
-        fail_validation(&e);
-    }
-
-    let milestones_json = build_milestones_json(&milestones_csv);
+    let milestones_json = build_milestones_json(&milestones_csv).unwrap_or_else(|e| {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    });
 
     let args = vec![
         "--agreement-id".to_string(),
@@ -279,7 +294,7 @@ fn run_init(
     ];
 
     let out = RpcClient::invoke(config, "init", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- lock_funds …`
@@ -289,11 +304,7 @@ fn run_init(
 /// stellar contract invoke … -- lock_funds
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) {
-    if let Err(e) = validate_agreement_id(&agreement_id) {
-        fail_validation(&e);
-    }
-
+fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -302,7 +313,7 @@ fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) {
     ];
 
     let out = RpcClient::invoke(config, "lock_funds", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- submit_work …`
@@ -322,11 +333,7 @@ fn run_submit_work(
     agreement_id: String,
     milestone_id: u32,
     proof_uri: Option<String>,
-) {
-    if let Err(e) = validate_agreement_id(&agreement_id) {
-        fail_validation(&e);
-    }
-
+) -> Result<(), String> {
     let mut args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -343,7 +350,7 @@ fn run_submit_work(
     }
 
     let out = RpcClient::invoke(config, "submit_work", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- approve_and_release …`
@@ -353,11 +360,7 @@ fn run_submit_work(
 /// stellar contract invoke … -- approve_and_release
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) {
-    if let Err(e) = validate_agreement_id(&agreement_id) {
-        fail_validation(&e);
-    }
-
+fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -366,7 +369,7 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
     ];
 
     let out = RpcClient::invoke(config, "approve_and_release", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- raise_dispute …`
@@ -380,11 +383,7 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
 /// `caller` is passed explicitly because the contract checks it against
 /// both `agreement.payer` and `agreement.payee` before calling
 /// `caller.require_auth()`, so either party can autonomously open a dispute.
-fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) {
-    if let Err(e) = validate_agreement_id(&agreement_id) {
-        fail_validation(&e);
-    }
-
+fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -395,7 +394,7 @@ fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, c
     ];
 
     let out = RpcClient::invoke(config, "raise_dispute", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- resolve_dispute …`
@@ -410,11 +409,7 @@ fn run_resolve_dispute(
     agreement_id: String,
     milestone_id: u32,
     refund_to_payer: bool,
-) {
-    if let Err(e) = validate_agreement_id(&agreement_id) {
-        fail_validation(&e);
-    }
-
+) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -425,7 +420,7 @@ fn run_resolve_dispute(
     ];
 
     let out = RpcClient::invoke(config, "resolve_dispute", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- cancel_unfunded_milestone …`
@@ -435,11 +430,7 @@ fn run_resolve_dispute(
 /// stellar contract invoke … -- cancel_unfunded_milestone
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) {
-    if let Err(e) = validate_agreement_id(&agreement_id) {
-        fail_validation(&e);
-    }
-
+fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -448,7 +439,7 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
     ];
 
     let out = RpcClient::invoke(config, "cancel_unfunded_milestone", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- get_agreement …`
@@ -461,17 +452,35 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
 ///
 /// The stellar CLI calls the contract's `get_agreement` view function and
 /// returns the full Agreement struct as JSON, which is printed to stdout.
-fn run_status(config: &Config, agreement_id: String) {
-    if let Err(e) = validate_agreement_id(&agreement_id) {
-        fail_validation(&e);
-    }
-
+fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
     ];
 
     let out = RpcClient::invoke(config, "get_agreement", &args);
+    print_output(&out)
+}
+
+/// `stellar contract invoke … -- get_milestone …`
+///
+/// Final call signature:
+/// ```
+/// stellar contract invoke … -- get_milestone
+///   --agreement-id <hex> --milestone-id <u32>
+/// ```
+///
+/// Queries a single milestone by index without fetching the full Agreement,
+/// reducing deserialization cost for agreements with many milestones.
+fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) {
+    let args = vec![
+        "--agreement-id".to_string(),
+        format!("\"{}\"", agreement_id),
+        "--milestone-id".to_string(),
+        milestone_id.to_string(),
+    ];
+
+    let out = RpcClient::invoke(config, "get_milestone", &args);
     print_output(&out);
 }
 
@@ -482,56 +491,134 @@ fn run_status(config: &Config, agreement_id: String) {
 /// Convert a comma-separated amount string like `"1000,2000"` into the JSON
 /// array format the `stellar` CLI accepts for a `Vec<Milestone>` argument.
 ///
+/// Amounts are parsed as `i128` to match the contract's `Milestone.amount` type.
+/// Values that are not valid integers, are zero, or are negative are rejected
+/// with a descriptive error — the entire command fails rather than silently
+/// producing a malformed milestone list.
+///
 /// Each milestone is given:
 /// - `id`        – its 0-based position in the list
-/// - `amount`    – the parsed amount
+/// - `amount`    – the parsed `i128` amount (quoted, per Soroban i128 JSON encoding)
 /// - `status`    – `{"Pending":null}` (XDR union tag for EscrowStatus::Pending)
 /// - `proof_uri` – `null` (XDR `Void`, i.e. `None` — no proof submitted yet)
 ///
 /// Example output for `"1000,2000"`:
 /// ```json
-/// [{"id":0,"amount":1000,"status":{"Pending":null},"proof_uri":null},
-///  {"id":1,"amount":2000,"status":{"Pending":null},"proof_uri":null}]
+/// [{"id":0,"amount":"1000","status":{"Pending":null},"proof_uri":null},
+///  {"id":1,"amount":"2000","status":{"Pending":null},"proof_uri":null}]
 /// ```
-fn build_milestones_json(csv: &str) -> String {
+fn build_milestones_json(csv: &str) -> Result<String, String> {
     let entries: Vec<String> = csv
         .split(',')
         .enumerate()
-        .filter_map(|(idx, part)| {
+        .map(|(idx, part)| -> Result<String, String> {
             let trimmed = part.trim();
-            match trimmed.parse::<u64>() {
-                Ok(amount) => Some(format!(
-                    r#"{{"id":{idx},"amount":"{amount}","status":{{"Pending":null}},"proof_uri":null}}"#,
-                )),
-                Err(_) => {
-                    eprintln!(
-                        "Warning: skipping invalid milestone amount {:?} at index {}",
-                        trimmed, idx
-                    );
-                    None
-                }
+            let amount: i128 = trimmed.parse().map_err(|_| {
+                format!(
+                    "invalid milestone amount {:?} at index {} — expected a positive integer",
+                    trimmed, idx
+                )
+            })?;
+            if amount <= 0 {
+                return Err(format!(
+                    "milestone amount at index {} must be a positive integer, got {amount}",
+                    idx
+                ));
             }
+            Ok(format!(
+                r#"{{"id":{idx},"amount":"{amount}","status":{{"Pending":null}},"proof_uri":null}}"#,
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
-    format!("[{}]", entries.join(","))
+    Ok(format!("[{}]", entries.join(",")))
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::build_milestones_json;
+
+    #[test]
+    fn test_build_milestones_json_happy_path() {
+        let json = build_milestones_json("1000,2000,500").unwrap();
+        assert_eq!(
+            json,
+            r#"[{"id":0,"amount":"1000","status":{"Pending":null},"proof_uri":null},{"id":1,"amount":"2000","status":{"Pending":null},"proof_uri":null},{"id":2,"amount":"500","status":{"Pending":null},"proof_uri":null}]"#
+        );
+    }
+
+    #[test]
+    fn test_build_milestones_json_max_i128() {
+        let max = i128::MAX.to_string();
+        let json = build_milestones_json(&max).unwrap();
+        assert!(
+            json.contains(&format!("\"amount\":\"{}\"", i128::MAX)),
+            "max i128 value should be preserved verbatim"
+        );
+    }
+
+    #[test]
+    fn test_build_milestones_json_zero_rejects() {
+        let result = build_milestones_json("0");
+        assert!(result.is_err(), "zero amount must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_negative_rejects() {
+        let result = build_milestones_json("-500");
+        assert!(result.is_err(), "negative amount must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_non_numeric_rejects() {
+        let result = build_milestones_json("abc");
+        assert!(result.is_err(), "non-numeric input must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_whitespace_trimmed() {
+        let json = build_milestones_json(" 100 , 200 ").unwrap();
+        assert!(json.contains("\"amount\":\"100\""));
+        assert!(json.contains("\"amount\":\"200\""));
+    }
+
+    #[test]
+    fn test_build_milestones_json_single_milestone() {
+        let json = build_milestones_json("42").unwrap();
+        assert_eq!(
+            json,
+            r#"[{"id":0,"amount":"42","status":{"Pending":null},"proof_uri":null}]"#
+        );
+    }
 }
 
 /// Print the result of an RPC call.
 /// On failure, prints the full verbatim command so the user can reproduce it.
-fn print_output(out: &crate::rpc::InvokeOutput) {
+///
+/// Returns `Ok(())` on success or `Err(message)` on failure so that
+/// callers (i.e. `main`) can run any cleanup before exiting with a non-zero
+/// exit code.  This avoids calling `std::process::exit` inside a library
+/// function, which would skip destructors and flush buffers unsafely.
+fn print_output(out: &crate::rpc::InvokeOutput) -> Result<(), String> {
     if out.success {
         println!("{}", out.stdout.trim());
+        Ok(())
     } else {
-        eprintln!("── Transaction failed ──────────────────────────────────");
-        eprintln!("Command: {}", out.command_debug);
+        let mut msg = format!(
+            "── Transaction failed ──────────────────────────────────\nCommand: {}",
+            out.command_debug
+        );
         if !out.stdout.is_empty() {
-            eprintln!("stdout:\n{}", out.stdout.trim());
+            msg.push_str(&format!("\nstdout:\n{}", out.stdout.trim()));
         }
         if !out.stderr.is_empty() {
-            eprintln!("stderr:\n{}", out.stderr.trim());
+            msg.push_str(&format!("\nstderr:\n{}", out.stderr.trim()));
         }
-        std::process::exit(1);
+        Err(msg)
     }
 }
 

@@ -5,6 +5,7 @@ mod utils;
 
 use clap::Parser;
 use commands::Commands;
+use std::process;
 
 // ---------------------------------------------------------------------------
 // Top-level CLI definition
@@ -12,11 +13,17 @@ use commands::Commands;
 
 /// Trellis Protocol CLI — milestone-based escrow on Stellar Soroban.
 ///
-/// Configuration is read from environment variables:
-///   STELLAR_RPC_URL           (default: Soroban Testnet)
-///   STELLAR_NETWORK_PASSPHRASE (default: Testnet passphrase)
-///   TRELLIS_CONTRACT_ID        (required for on-chain calls)
-///   TRELLIS_SOURCE_KEY         (Stellar secret key or named identity)
+/// Configuration can be loaded from a `.env` file in the working directory or
+/// set as environment variables.  CLI flags take highest priority, then env
+/// vars, then the `.env` file.
+///
+/// Required variables:
+///   TRELLIS_CONTRACT_ID        — Bech32 contract address (`C…`)
+///   TRELLIS_SOURCE_KEY         — Stellar secret key or named identity
+///
+/// Optional variables (Soroban Testnet used as default):
+///   STELLAR_RPC_URL            — Soroban JSON-RPC endpoint
+///   STELLAR_NETWORK_PASSPHRASE — Network passphrase for transaction signing
 #[derive(Parser, Debug)]
 #[command(
     name = "trellis",
@@ -32,24 +39,64 @@ struct Cli {
 }
 
 // ---------------------------------------------------------------------------
+// Environment validation (#68)
+// ---------------------------------------------------------------------------
+
+/// Verify that the `stellar` CLI binary is available in `PATH`.
+///
+/// This is called once at startup so users get a clear, actionable error
+/// message instead of a cryptic OS-level "program not found" when the binary
+/// is missing.
+///
+/// Returns `Ok(())` if the binary is found, or `Err(message)` with
+/// installation instructions if it is not.
+fn validate_environment() -> Result<(), String> {
+    use std::process::Command;
+
+    match Command::new("stellar").arg("--version").output() {
+        Ok(_) => Ok(()),
+        Err(_) => Err(
+            "Error: `stellar` CLI not found in PATH.\n\
+             \n\
+             Install it with:\n\
+             \n\
+             \tcargo install --locked stellar-cli --features opt\n\
+             \n\
+             Or follow the official guide:\n\
+             \thttps://developers.stellar.org/docs/tools/cli/install-cli\n\
+             \n\
+             After installing, run `stellar --version` to confirm the installation."
+                .to_string(),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
 fn main() {
+    // ── #66: Load .env file before reading any env vars ───────────────────
+    // dotenvy::dotenv() looks for a `.env` file in the current directory (and
+    // walks up to the workspace root).  `.ok()` silently ignores a missing
+    // file — users who rely purely on exported env vars are unaffected.
+    // Priority: CLI args > env vars > .env file values.
+    dotenvy::dotenv().ok();
+
+    // ── #68: Validate stellar binary at startup ────────────────────────────
+    if let Err(msg) = validate_environment() {
+        eprintln!("{msg}");
+        process::exit(1);
+    }
+
     let cli = Cli::parse();
     let config = config::Config::from_env();
 
-    if let Err(missing) = config.validate() {
-        eprintln!("error: the following required environment variables are not set:");
-        for var in &missing {
-            eprintln!("  {var}");
-        }
-        eprintln!();
-        eprintln!("Set them before running trellis, for example:");
-        eprintln!("  export TRELLIS_CONTRACT_ID=<your-contract-address>");
-        eprintln!("  export TRELLIS_SOURCE_KEY=<your-stellar-secret-key-or-identity>");
-        std::process::exit(1);
+    // ── #67: Propagate errors from dispatch; exit(1) only in main ─────────
+    // All cleanup (destructors, buffer flushes) runs before the exit call
+    // because process::exit is only called here, never inside library code.
+    if let Err(msg) = commands::dispatch(cli.command, &config) {
+        eprintln!("{msg}");
+        process::exit(1);
     }
-
-    commands::dispatch(cli.command, &config);
 }
