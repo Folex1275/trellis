@@ -564,3 +564,90 @@ fn test_multi_milestone_funding_order_independent() {
     assert_eq!(m1.status, EscrowStatus::Funded,
         "milestone 1 must remain Funded — unaffected by milestone 0 completion");
 }
+
+// ===========================================================================
+// #60 — Zero-amount milestone rejection tests
+// ===========================================================================
+
+/// init with a single zero-amount milestone must fail with InvalidMilestone.
+#[test]
+fn test_init_with_zero_amount_milestone_fails() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 30);
+
+    let result = client.try_init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 0),
+        &dispute_resolver,
+    );
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidMilestone)),
+        "init with a zero-amount milestone must return InvalidMilestone"
+    );
+}
+
+/// init where one milestone out of several has amount = 0 must fail with
+/// InvalidMilestone (partial validation — all milestones are checked).
+#[test]
+fn test_init_with_multiple_milestones_one_zero_fails() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 31);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 1_000, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 0,     status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 2, amount: 500,   status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    let result = client.try_init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &milestones,
+        &dispute_resolver,
+    );
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidMilestone)),
+        "init with any zero-amount milestone must return InvalidMilestone"
+    );
+}
+
+/// After a failed init (due to zero amount), a subsequent valid init with the
+/// same ID must succeed — no state corruption from the failed call.
+#[test]
+fn test_failed_zero_amount_init_leaves_no_state_corruption() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 32);
+
+    // This must fail.
+    let failed = client.try_init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 0),
+        &dispute_resolver,
+    );
+    assert!(failed.is_err(), "zero-amount init must fail");
+
+    // The same ID must still be available — no partial write occurred.
+    let result = client.try_init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 100),
+        &dispute_resolver,
+    );
+    assert!(
+        result.is_ok(),
+        "valid init after a failed zero-amount init must succeed (no state corruption)"
+    );
+}
