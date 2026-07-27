@@ -6,19 +6,21 @@ use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
 // Convention:
 //   • topics: a tuple of (Symbol, agreement_id) — enables indexed filtering
 //     by event name and/or agreement ID from off-chain indexers.
-//   • data:   a tuple of the remaining fields relevant to the event.
+//   • data:   a tuple of typed Soroban primitives (Symbol, i128, Address, u32,
+//     bool, Option<String>) so off-chain consumers can decode payloads without
+//     importing the contract WASM types.
 //
 // The topic Symbol is kept to ≤9 chars so symbol_short! can inline it as a
 // 64-bit value, avoiding heap allocation on the guest WASM side.
 //
-// The contract emits exactly 7 events:
-//   1. "created"   – agreement_created
-//   2. "locked"    – funds_locked
-//   3. "submitted" – work_submitted
-//   4. "released"  – funds_released
-//   5. "disputed"  – dispute_raised
-//   6. "resolved"  – milestone_resolved   (dispute rulings only)
-//   7. "cancelled" – milestone_cancelled  (payer withdrawing an unfunded milestone)
+// Event schema (topics → data):
+//   1. "created"   → (payer: Address, payee: Address)
+//   2. "locked"    → (milestone_id: u32, amount: i128)
+//   3. "submitted" → (milestone_id: u32, proof_uri: Option<String>)
+//   4. "released"  → (milestone_id: u32, amount: i128)
+//   5. "disputed"  → (milestone_id: u32, caller: Address)
+//   6. "resolved"  → (milestone_id: u32, refunded_to_payer: bool)
+//   7. "cancelled" → (milestone_id: u32, payer: Address, cancelled_by: Address)
 //
 // "resolved" and "cancelled" are deliberately distinct: an indexer must be able
 // to tell an arbitrated dispute outcome apart from a payer walking back a
@@ -81,8 +83,12 @@ pub fn funds_released(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, am
 /// Emitted when either party raises a dispute on a funded or work-submitted milestone.
 ///
 /// Topics: `("disputed", agreement_id)`
-/// Data:   `milestone_id`
-pub fn dispute_raised(env: &Env, agreement_id: BytesN<32>, milestone_id: u32) {
+/// Data:   `(milestone_id, caller)`
+///
+/// `caller` is the party (payer or payee) that triggered the dispute, provided
+/// as a typed `Address` so indexers can identify the initiating party without
+/// importing contract WASM types.
+pub fn dispute_raised(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, caller: Address) {
     env.events().publish(
         (symbol_short!("disputed"), agreement_id.clone()),
         (milestone_id, caller),
