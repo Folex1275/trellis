@@ -187,6 +187,55 @@ pub fn dispatch(cmd: Commands, config: &Config) {
 }
 
 // ---------------------------------------------------------------------------
+// Input validation
+// ---------------------------------------------------------------------------
+
+/// Validate an agreement ID: must be exactly 64 lowercase or uppercase hex chars.
+///
+/// Rejects any value that could be used to inject additional CLI flags or
+/// smuggle shell metacharacters through the argument list.
+fn validate_agreement_id(id: &str) -> Result<(), String> {
+    if id.len() != 64 {
+        return Err(format!(
+            "agreement_id must be exactly 64 hex characters, got {}",
+            id.len()
+        ));
+    }
+    if !id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(
+            "agreement_id must contain only hexadecimal characters (0-9, a-f, A-F)".to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Validate a proof URI: printable, non-empty, within a reasonable length cap.
+///
+/// Control characters (including newlines) are rejected so they cannot be
+/// used to confuse argument parsing downstream.
+fn validate_proof_uri(uri: &str) -> Result<(), String> {
+    if uri.is_empty() {
+        return Err("proof_uri must not be empty".to_string());
+    }
+    if uri.len() > 2048 {
+        return Err(format!(
+            "proof_uri must not exceed 2048 characters, got {}",
+            uri.len()
+        ));
+    }
+    if uri.chars().any(|c| c.is_control()) {
+        return Err("proof_uri must not contain control characters".to_string());
+    }
+    Ok(())
+}
+
+/// Print a validation error and exit with code 1.
+fn fail_validation(msg: &str) -> ! {
+    eprintln!("error: {msg}");
+    std::process::exit(1);
+}
+
+// ---------------------------------------------------------------------------
 // Active command implementations
 // ---------------------------------------------------------------------------
 
@@ -208,11 +257,15 @@ fn run_init(
     resolver: String,
     milestones_csv: String,
 ) {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let milestones_json = build_milestones_json(&milestones_csv);
 
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--payer".to_string(),
         payer,
         "--payee".to_string(),
@@ -237,9 +290,13 @@ fn run_init(
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
 fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
     ];
@@ -266,16 +323,23 @@ fn run_submit_work(
     milestone_id: u32,
     proof_uri: Option<String>,
 ) {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let mut args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
     ];
 
     if let Some(uri) = proof_uri.filter(|u| !u.is_empty()) {
+        if let Err(e) = validate_proof_uri(&uri) {
+            fail_validation(&e);
+        }
         args.push("--proof-uri".to_string());
-        args.push(format!("\"{}\"", uri));
+        args.push(uri);
     }
 
     let out = RpcClient::invoke(config, "submit_work", &args);
@@ -290,9 +354,13 @@ fn run_submit_work(
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
 fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
     ];
@@ -313,9 +381,13 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
 /// both `agreement.payer` and `agreement.payee` before calling
 /// `caller.require_auth()`, so either party can autonomously open a dispute.
 fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
         "--caller".to_string(),
@@ -339,9 +411,13 @@ fn run_resolve_dispute(
     milestone_id: u32,
     refund_to_payer: bool,
 ) {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
         "--refund-to-payer".to_string(),
@@ -360,9 +436,13 @@ fn run_resolve_dispute(
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
 fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
     ];
@@ -382,9 +462,13 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
 /// The stellar CLI calls the contract's `get_agreement` view function and
 /// returns the full Agreement struct as JSON, which is printed to stdout.
 fn run_status(config: &Config, agreement_id: String) {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
     ];
 
     let out = RpcClient::invoke(config, "get_agreement", &args);
@@ -448,5 +532,99 @@ fn print_output(out: &crate::rpc::InvokeOutput) {
             eprintln!("stderr:\n{}", out.stderr.trim());
         }
         std::process::exit(1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- validate_agreement_id ---
+
+    #[test]
+    fn agreement_id_valid_lowercase_hex() {
+        let id = "a".repeat(64);
+        assert!(validate_agreement_id(&id).is_ok());
+    }
+
+    #[test]
+    fn agreement_id_valid_uppercase_hex() {
+        let id = "F".repeat(64);
+        assert!(validate_agreement_id(&id).is_ok());
+    }
+
+    #[test]
+    fn agreement_id_valid_mixed_hex() {
+        let id = "0123456789abcdefABCDEF0123456789abcdefABCDEF0123456789abcdefABCD";
+        assert_eq!(id.len(), 64);
+        assert!(validate_agreement_id(id).is_ok());
+    }
+
+    #[test]
+    fn agreement_id_rejects_wrong_length() {
+        assert!(validate_agreement_id("abc").is_err());
+        assert!(validate_agreement_id(&"a".repeat(63)).is_err());
+        assert!(validate_agreement_id(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn agreement_id_rejects_non_hex_chars() {
+        // space injection attempt
+        let id = format!("{} --extra-flag x {}", "a".repeat(30), "b".repeat(30));
+        assert!(validate_agreement_id(&id).is_err());
+    }
+
+    #[test]
+    fn agreement_id_rejects_quotes_and_backslash() {
+        let id = format!("{}\"{}\\{}", "a".repeat(21), "b".repeat(21), "c".repeat(20));
+        assert!(validate_agreement_id(&id).is_err());
+    }
+
+    #[test]
+    fn agreement_id_rejects_null_byte() {
+        let mut id = "a".repeat(64);
+        // Replace one char with null byte representation
+        id = id.replacen('a', "\0", 1);
+        assert!(validate_agreement_id(&id).is_err());
+    }
+
+    // --- validate_proof_uri ---
+
+    #[test]
+    fn proof_uri_valid_ipfs() {
+        assert!(validate_proof_uri("ipfs://QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco").is_ok());
+    }
+
+    #[test]
+    fn proof_uri_valid_https() {
+        assert!(validate_proof_uri("https://github.com/org/repo/pull/42").is_ok());
+    }
+
+    #[test]
+    fn proof_uri_rejects_empty() {
+        assert!(validate_proof_uri("").is_err());
+    }
+
+    #[test]
+    fn proof_uri_rejects_control_characters() {
+        assert!(validate_proof_uri("https://example.com/\nX-Injected: bad").is_err());
+        assert!(validate_proof_uri("https://example.com/\x00null").is_err());
+        assert!(validate_proof_uri("https://example.com/\t tab").is_err());
+    }
+
+    #[test]
+    fn proof_uri_rejects_oversized() {
+        let uri = "a".repeat(2049);
+        assert!(validate_proof_uri(&uri).is_err());
+    }
+
+    #[test]
+    fn proof_uri_accepts_max_length() {
+        let uri = "a".repeat(2048);
+        assert!(validate_proof_uri(&uri).is_ok());
     }
 }
