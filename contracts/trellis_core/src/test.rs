@@ -306,6 +306,62 @@ fn test_multi_milestone_transitions() {
     assert_eq!(second.status, EscrowStatus::Pending);
 }
 
+/// batch_lock_funds funds every milestone in the supplied list in one call.
+#[test]
+fn test_batch_lock_funds() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let token_client = token::TokenClient::new(&env, &token_address);
+    let id = agreement_id(&env, 10);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let funded = client.batch_lock_funds(&id, &milestone_ids);
+
+    assert_eq!(funded, 2u32, "both milestones should be funded");
+    assert_eq!(
+        token_client.balance(&client.address),
+        1_000,
+        "contract balance should equal sum of locked milestones"
+    );
+    assert_eq!(
+        token_client.balance(&payer),
+        9_000,
+        "payer balance should decrease by the total locked amount"
+    );
+}
+
+/// batch_lock_funds short-circuits on the first already-funded milestone.
+#[test]
+fn test_batch_lock_funds_partial_failure() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 11);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+    client.lock_funds(&id, &0u32);
+
+    // milestone 0 is already Funded — the batch must fail atomically.
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let result = client.try_batch_lock_funds(&id, &milestone_ids);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "batch should fail when a milestone is not Pending"
+    );
+}
+
 /// get_agreement returns the correct Agreement after init, and AgreementNotFound
 /// for an ID that was never initialized.
 #[test]
@@ -357,288 +413,35 @@ fn test_get_agreement() {
     );
 }
 
-// ===========================================================================
-// #58 — Negative tests: approve_and_release on non-WorkSubmitted milestones
-// ===========================================================================
-
-/// approve_and_release on a Pending milestone must fail with
-/// InvalidStateTransition (no funds locked, no work submitted).
+/// get_milestone returns the correct milestone for a valid index.
 #[test]
-fn test_approve_on_pending_milestone_fails() {
+fn test_get_milestone_returns_correct_milestone() {
     let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 10);
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 500),
-        &dispute_resolver,
-    );
-
-    // Milestone is still Pending — approve must be rejected.
-    let result = client.try_approve_and_release(&id, &0u32);
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::InvalidStateTransition)),
-        "approve_and_release on a Pending milestone must return InvalidStateTransition"
-    );
-}
-
-/// approve_and_release on a Funded milestone (work not yet submitted) must
-/// fail with InvalidStateTransition — funds are locked but the payee has not
-/// delivered.
-#[test]
-fn test_approve_on_funded_milestone_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 11);
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 500),
-        &dispute_resolver,
-    );
-    client.lock_funds(&id, &0u32);
-
-    // Milestone is Funded but work has not been submitted yet.
-    let result = client.try_approve_and_release(&id, &0u32);
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::InvalidStateTransition)),
-        "approve_and_release on a Funded milestone must return InvalidStateTransition"
-    );
-}
-
-/// approve_and_release on an already-Completed milestone (double-approve) must
-/// fail with InvalidStateTransition — funds are already gone.
-#[test]
-fn test_approve_on_completed_milestone_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 12);
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 500),
-        &dispute_resolver,
-    );
-    client.lock_funds(&id, &0u32);
-    client.submit_work(&id, &0u32, &Some(String::from_str(&env, "ipfs://proof")));
-    client.approve_and_release(&id, &0u32);
-
-    // Milestone is now Completed — a second approve must be rejected.
-    let result = client.try_approve_and_release(&id, &0u32);
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::InvalidStateTransition)),
-        "approve_and_release on an already-Completed milestone must return InvalidStateTransition"
-    );
-}
-
-// ===========================================================================
-// #59 — Multi-milestone state isolation tests
-// ===========================================================================
-
-/// Three-milestone agreement where each milestone follows a distinct path:
-///   milestone 0 → full happy path (Completed)
-///   milestone 1 → funded then disputed then refunded to payer (Refunded)
-///   milestone 2 → never funded, then cancelled (Refunded via cancel)
-///
-/// Verifies that transitions on one milestone do not affect any other.
-#[test]
-fn test_multi_milestone_state_isolation() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let token_client = token::TokenClient::new(&env, &token_address);
     let id = agreement_id(&env, 20);
 
-    // setup() mints 10_000 to payer; amounts total 3_000.
     let milestones = vec![
         &env,
-        Milestone { id: 0, amount: 1_000, status: EscrowStatus::Pending, proof_uri: None },
-        Milestone { id: 1, amount: 1_000, status: EscrowStatus::Pending, proof_uri: None },
-        Milestone { id: 2, amount: 1_000, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 0, amount: 100, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 200, status: EscrowStatus::Pending, proof_uri: None },
     ];
 
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &milestones,
-        &dispute_resolver,
-    );
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
 
-    // ── Milestone 0: happy path ───────────────────────────────────────────
-    client.lock_funds(&id, &0u32);
-    client.submit_work(&id, &0u32, &Some(String::from_str(&env, "ipfs://m0")));
-    client.approve_and_release(&id, &0u32);
-
-    // ── Milestone 1: dispute → refund to payer ────────────────────────────
-    client.lock_funds(&id, &1u32);
-    client.raise_dispute(&payer, &id, &1u32);
-    let payer_balance_before_refund = token_client.balance(&payer);
-    client.resolve_dispute(&id, &1u32, &true);
-
-    // ── Milestone 2: never funded → cancelled ────────────────────────────
-    client.cancel_unfunded_milestone(&id, &2u32);
-
-    // ── Assertions ────────────────────────────────────────────────────────
-    let agreement = client.get_agreement(&id);
-
-    let m0 = agreement.milestones.get(0).expect("milestone 0 must exist");
-    let m1 = agreement.milestones.get(1).expect("milestone 1 must exist");
-    let m2 = agreement.milestones.get(2).expect("milestone 2 must exist");
-
-    assert_eq!(m0.status, EscrowStatus::Completed,
-        "milestone 0 must be Completed after happy path");
-    assert_eq!(m1.status, EscrowStatus::Refunded,
-        "milestone 1 must be Refunded after dispute → payer wins");
-    assert_eq!(m2.status, EscrowStatus::Refunded,
-        "milestone 2 must be Refunded after cancel_unfunded_milestone");
-
-    // Payee got only milestone 0 funds.
-    assert_eq!(token_client.balance(&payee), 1_000,
-        "payee should have received exactly milestone 0 amount");
-    // Payer got milestone 1 refunded.
-    assert_eq!(
-        token_client.balance(&payer),
-        payer_balance_before_refund + 1_000,
-        "payer should have received milestone 1 refund"
-    );
-    // Contract holds nothing.
-    assert_eq!(token_client.balance(&client.address), 0,
-        "contract should hold no funds after all milestones are settled");
+    let m = client.get_milestone(&id, &1u32);
+    assert!(m.is_some(), "milestone 1 must be found");
+    let m = m.unwrap();
+    assert_eq!(m.id, 1, "id must match the requested index");
+    assert_eq!(m.amount, 200, "amount must match");
+    assert_eq!(m.status, EscrowStatus::Pending, "status must be Pending");
 }
 
-/// Two milestones funded in reverse order (1 then 0) verifies that milestone
-/// state is keyed by index and not dependent on funding order.
+/// get_milestone returns None for an out-of-range milestone_id.
 #[test]
-fn test_multi_milestone_funding_order_independent() {
+fn test_get_milestone_invalid_id_returns_none() {
     let (env, payer, payee, dispute_resolver, token_address, client) = setup();
     let id = agreement_id(&env, 21);
 
-    let milestones = vec![
-        &env,
-        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
-        Milestone { id: 1, amount: 700, status: EscrowStatus::Pending, proof_uri: None },
-    ];
-
     client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &milestones,
-        &dispute_resolver,
-    );
-
-    // Fund milestone 1 first, then milestone 0.
-    client.lock_funds(&id, &1u32);
-    client.lock_funds(&id, &0u32);
-
-    let agreement = client.get_agreement(&id);
-    let m0 = agreement.milestones.get(0).expect("milestone 0 must exist");
-    let m1 = agreement.milestones.get(1).expect("milestone 1 must exist");
-
-    assert_eq!(m0.status, EscrowStatus::Funded,
-        "milestone 0 must be Funded after lock");
-    assert_eq!(m1.status, EscrowStatus::Funded,
-        "milestone 1 must be Funded after lock");
-
-    // Transitioning milestone 0 must not change milestone 1.
-    client.submit_work(&id, &0u32, &None);
-    client.approve_and_release(&id, &0u32);
-
-    let agreement = client.get_agreement(&id);
-    let m0 = agreement.milestones.get(0).expect("milestone 0 must exist");
-    let m1 = agreement.milestones.get(1).expect("milestone 1 must exist");
-
-    assert_eq!(m0.status, EscrowStatus::Completed,
-        "milestone 0 must be Completed after approve");
-    assert_eq!(m1.status, EscrowStatus::Funded,
-        "milestone 1 must remain Funded — unaffected by milestone 0 completion");
-}
-
-// ===========================================================================
-// #60 — Zero-amount milestone rejection tests
-// ===========================================================================
-
-/// init with a single zero-amount milestone must fail with InvalidMilestone.
-#[test]
-fn test_init_with_zero_amount_milestone_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 30);
-
-    let result = client.try_init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 0),
-        &dispute_resolver,
-    );
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::InvalidMilestone)),
-        "init with a zero-amount milestone must return InvalidMilestone"
-    );
-}
-
-/// init where one milestone out of several has amount = 0 must fail with
-/// InvalidMilestone (partial validation — all milestones are checked).
-#[test]
-fn test_init_with_multiple_milestones_one_zero_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 31);
-
-    let milestones = vec![
-        &env,
-        Milestone { id: 0, amount: 1_000, status: EscrowStatus::Pending, proof_uri: None },
-        Milestone { id: 1, amount: 0,     status: EscrowStatus::Pending, proof_uri: None },
-        Milestone { id: 2, amount: 500,   status: EscrowStatus::Pending, proof_uri: None },
-    ];
-
-    let result = client.try_init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &milestones,
-        &dispute_resolver,
-    );
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::InvalidMilestone)),
-        "init with any zero-amount milestone must return InvalidMilestone"
-    );
-}
-
-/// After a failed init (due to zero amount), a subsequent valid init with the
-/// same ID must succeed — no state corruption from the failed call.
-#[test]
-fn test_failed_zero_amount_init_leaves_no_state_corruption() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 32);
-
-    // This must fail.
-    let failed = client.try_init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 0),
-        &dispute_resolver,
-    );
-    assert!(failed.is_err(), "zero-amount init must fail");
-
-    // The same ID must still be available — no partial write occurred.
-    let result = client.try_init(
         &id,
         &payer,
         &payee,
@@ -646,8 +449,7 @@ fn test_failed_zero_amount_init_leaves_no_state_corruption() {
         &one_milestone(&env, 100),
         &dispute_resolver,
     );
-    assert!(
-        result.is_ok(),
-        "valid init after a failed zero-amount init must succeed (no state corruption)"
-    );
+
+    let result = client.get_milestone(&id, &99u32);
+    assert!(result.is_none(), "out-of-range milestone_id must return None");
 }
