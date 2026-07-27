@@ -1,7 +1,6 @@
 use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, Events},
-    token, vec, Address, BytesN, Env, FromVal, String, Symbol, Vec,
+    testutils::{Address as _, Events, MockAuth},
+    token, vec, Address, BytesN, Env, String, Vec,
 };
 
 use crate::{
