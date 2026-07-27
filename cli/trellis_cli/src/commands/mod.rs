@@ -124,6 +124,17 @@ pub enum Commands {
         #[arg(long)]
         agreement_id: String,
     },
+
+    /// Query the current status of a single milestone (cheaper than fetching the full agreement).
+    MilestoneStatus {
+        /// Agreement ID (hex-encoded, 64 chars).
+        #[arg(long)]
+        agreement_id: String,
+
+        /// Zero-based index of the milestone to query.
+        #[arg(long)]
+        milestone_id: u32,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +194,11 @@ pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
         } => run_cancel_milestone(config, agreement_id, milestone_id),
 
         Commands::Status { agreement_id } => run_status(config, agreement_id),
+
+        Commands::MilestoneStatus {
+            agreement_id,
+            milestone_id,
+        } => run_milestone_status(config, agreement_id, milestone_id),
     }
 }
 
@@ -207,8 +223,11 @@ fn run_init(
     token: String,
     resolver: String,
     milestones_csv: String,
-) -> Result<(), String> {
-    let milestones_json = build_milestones_json(&milestones_csv);
+) {
+    let milestones_json = build_milestones_json(&milestones_csv).unwrap_or_else(|e| {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    });
 
     let args = vec![
         "--agreement-id".to_string(),
@@ -391,6 +410,28 @@ fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
     print_output(&out)
 }
 
+/// `stellar contract invoke … -- get_milestone …`
+///
+/// Final call signature:
+/// ```
+/// stellar contract invoke … -- get_milestone
+///   --agreement-id <hex> --milestone-id <u32>
+/// ```
+///
+/// Queries a single milestone by index without fetching the full Agreement,
+/// reducing deserialization cost for agreements with many milestones.
+fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) {
+    let args = vec![
+        "--agreement-id".to_string(),
+        format!("\"{}\"", agreement_id),
+        "--milestone-id".to_string(),
+        milestone_id.to_string(),
+    ];
+
+    let out = RpcClient::invoke(config, "get_milestone", &args);
+    print_output(&out);
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -398,39 +439,109 @@ fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
 /// Convert a comma-separated amount string like `"1000,2000"` into the JSON
 /// array format the `stellar` CLI accepts for a `Vec<Milestone>` argument.
 ///
+/// Amounts are parsed as `i128` to match the contract's `Milestone.amount` type.
+/// Values that are not valid integers, are zero, or are negative are rejected
+/// with a descriptive error — the entire command fails rather than silently
+/// producing a malformed milestone list.
+///
 /// Each milestone is given:
 /// - `id`        – its 0-based position in the list
-/// - `amount`    – the parsed amount
+/// - `amount`    – the parsed `i128` amount (quoted, per Soroban i128 JSON encoding)
 /// - `status`    – `{"Pending":null}` (XDR union tag for EscrowStatus::Pending)
 /// - `proof_uri` – `null` (XDR `Void`, i.e. `None` — no proof submitted yet)
 ///
 /// Example output for `"1000,2000"`:
 /// ```json
-/// [{"id":0,"amount":1000,"status":{"Pending":null},"proof_uri":null},
-///  {"id":1,"amount":2000,"status":{"Pending":null},"proof_uri":null}]
+/// [{"id":0,"amount":"1000","status":{"Pending":null},"proof_uri":null},
+///  {"id":1,"amount":"2000","status":{"Pending":null},"proof_uri":null}]
 /// ```
-fn build_milestones_json(csv: &str) -> String {
+fn build_milestones_json(csv: &str) -> Result<String, String> {
     let entries: Vec<String> = csv
         .split(',')
         .enumerate()
-        .filter_map(|(idx, part)| {
+        .map(|(idx, part)| -> Result<String, String> {
             let trimmed = part.trim();
-            match trimmed.parse::<u64>() {
-                Ok(amount) => Some(format!(
-                    r#"{{"id":{idx},"amount":"{amount}","status":{{"Pending":null}},"proof_uri":null}}"#,
-                )),
-                Err(_) => {
-                    eprintln!(
-                        "Warning: skipping invalid milestone amount {:?} at index {}",
-                        trimmed, idx
-                    );
-                    None
-                }
+            let amount: i128 = trimmed.parse().map_err(|_| {
+                format!(
+                    "invalid milestone amount {:?} at index {} — expected a positive integer",
+                    trimmed, idx
+                )
+            })?;
+            if amount <= 0 {
+                return Err(format!(
+                    "milestone amount at index {} must be a positive integer, got {amount}",
+                    idx
+                ));
             }
+            Ok(format!(
+                r#"{{"id":{idx},"amount":"{amount}","status":{{"Pending":null}},"proof_uri":null}}"#,
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
-    format!("[{}]", entries.join(","))
+    Ok(format!("[{}]", entries.join(",")))
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::build_milestones_json;
+
+    #[test]
+    fn test_build_milestones_json_happy_path() {
+        let json = build_milestones_json("1000,2000,500").unwrap();
+        assert_eq!(
+            json,
+            r#"[{"id":0,"amount":"1000","status":{"Pending":null},"proof_uri":null},{"id":1,"amount":"2000","status":{"Pending":null},"proof_uri":null},{"id":2,"amount":"500","status":{"Pending":null},"proof_uri":null}]"#
+        );
+    }
+
+    #[test]
+    fn test_build_milestones_json_max_i128() {
+        let max = i128::MAX.to_string();
+        let json = build_milestones_json(&max).unwrap();
+        assert!(
+            json.contains(&format!("\"amount\":\"{}\"", i128::MAX)),
+            "max i128 value should be preserved verbatim"
+        );
+    }
+
+    #[test]
+    fn test_build_milestones_json_zero_rejects() {
+        let result = build_milestones_json("0");
+        assert!(result.is_err(), "zero amount must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_negative_rejects() {
+        let result = build_milestones_json("-500");
+        assert!(result.is_err(), "negative amount must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_non_numeric_rejects() {
+        let result = build_milestones_json("abc");
+        assert!(result.is_err(), "non-numeric input must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_whitespace_trimmed() {
+        let json = build_milestones_json(" 100 , 200 ").unwrap();
+        assert!(json.contains("\"amount\":\"100\""));
+        assert!(json.contains("\"amount\":\"200\""));
+    }
+
+    #[test]
+    fn test_build_milestones_json_single_milestone() {
+        let json = build_milestones_json("42").unwrap();
+        assert_eq!(
+            json,
+            r#"[{"id":0,"amount":"42","status":{"Pending":null},"proof_uri":null}]"#
+        );
+    }
 }
 
 /// Print the result of an RPC call.

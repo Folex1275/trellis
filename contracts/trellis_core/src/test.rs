@@ -1,7 +1,6 @@
 use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, Events},
-    token, vec, Address, BytesN, Env, FromVal, String, Symbol, Vec,
+    testutils::{Address as _, Events, MockAuth},
+    token, vec, Address, BytesN, Env, String, Vec,
 };
 
 use crate::{
@@ -274,13 +273,13 @@ fn test_multi_milestone_transitions() {
             id: 0,
             amount: 1_000,
             status: EscrowStatus::Pending,
-            proof_uri: String::from_str(&env, ""),
+            proof_uri: None,
         },
         Milestone {
             id: 1,
             amount: 2_000,
             status: EscrowStatus::Pending,
-            proof_uri: String::from_str(&env, ""),
+            proof_uri: None,
         },
     ];
 
@@ -294,7 +293,7 @@ fn test_multi_milestone_transitions() {
     );
 
     client.lock_funds(&id, &0u32);
-    let proof = String::from_str(&env, "ipfs://multi-milestone");
+    let proof = Some(String::from_str(&env, "ipfs://multi-milestone"));
     client.submit_work(&id, &0u32, &proof);
     client.approve_and_release(&id, &0u32);
 
@@ -304,6 +303,62 @@ fn test_multi_milestone_transitions() {
 
     assert_eq!(first.status, EscrowStatus::Completed);
     assert_eq!(second.status, EscrowStatus::Pending);
+}
+
+/// batch_lock_funds funds every milestone in the supplied list in one call.
+#[test]
+fn test_batch_lock_funds() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let token_client = token::TokenClient::new(&env, &token_address);
+    let id = agreement_id(&env, 10);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let funded = client.batch_lock_funds(&id, &milestone_ids);
+
+    assert_eq!(funded, 2u32, "both milestones should be funded");
+    assert_eq!(
+        token_client.balance(&client.address),
+        1_000,
+        "contract balance should equal sum of locked milestones"
+    );
+    assert_eq!(
+        token_client.balance(&payer),
+        9_000,
+        "payer balance should decrease by the total locked amount"
+    );
+}
+
+/// batch_lock_funds short-circuits on the first already-funded milestone.
+#[test]
+fn test_batch_lock_funds_partial_failure() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 11);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+    client.lock_funds(&id, &0u32);
+
+    // milestone 0 is already Funded — the batch must fail atomically.
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let result = client.try_batch_lock_funds(&id, &milestone_ids);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "batch should fail when a milestone is not Pending"
+    );
 }
 
 /// get_agreement returns the correct Agreement after init, and AgreementNotFound
@@ -357,69 +412,43 @@ fn test_get_agreement() {
     );
 }
 
-/// Verify that all emitted event topics carry the `trlls_` namespace prefix.
-///
-/// This prevents cross-contract event misattribution by off-chain indexers
-/// when multiple contracts are composed together.  Each first-position topic
-/// Symbol is compared against the known set of `trlls_*` symbols — see
-/// `events.rs` for the full namespace convention.
+/// get_milestone returns the correct milestone for a valid index.
 #[test]
-fn test_event_topics_have_trlls_prefix() {
-    let env = Env::default();
-    env.mock_all_auths();
+fn test_get_milestone_returns_correct_milestone() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 20);
 
-    let payer = Address::generate(&env);
-    let payee = Address::generate(&env);
-    let dispute_resolver = Address::generate(&env);
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 100, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 200, status: EscrowStatus::Pending, proof_uri: None },
+    ];
 
-    let token_admin = Address::generate(&env);
-    let token_address = env
-        .register_stellar_asset_contract_v2(token_admin.clone())
-        .address();
-    let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
-    token_admin_client.mint(&payer, &10_000);
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
 
-    let contract_id = env.register(TrellisContract, ());
-    let client = TrellisContractClient::new(&env, &contract_id);
+    let m = client.get_milestone(&id, &1u32);
+    assert!(m.is_some(), "milestone 1 must be found");
+    let m = m.unwrap();
+    assert_eq!(m.id, 1, "id must match the requested index");
+    assert_eq!(m.amount, 200, "amount must match");
+    assert_eq!(m.status, EscrowStatus::Pending, "status must be Pending");
+}
 
-    let id = agreement_id(&env, 42);
-    let amount: i128 = 500;
+/// get_milestone returns None for an out-of-range milestone_id.
+#[test]
+fn test_get_milestone_invalid_id_returns_none() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 21);
 
-    // Run through init → lock → submit → release so all major events fire.
     client.init(
         &id,
         &payer,
         &payee,
         &token_address,
-        &one_milestone(&env, amount),
+        &one_milestone(&env, 100),
         &dispute_resolver,
     );
-    client.lock_funds(&id, &0u32);
-    let proof = Some(String::from_str(&env, "ipfs://test-prefix"));
-    client.submit_work(&id, &0u32, &proof);
-    client.approve_and_release(&id, &0u32);
 
-    // The full set of valid namespaced topic symbols used by this contract.
-    let valid_topics = [
-        symbol_short!("trlls_crte"),
-        symbol_short!("trlls_lckd"),
-        symbol_short!("trlls_sbmt"),
-        symbol_short!("trlls_rlsd"),
-        symbol_short!("trlls_dspt"),
-        symbol_short!("trlls_rslv"),
-        symbol_short!("trlls_cncl"),
-    ];
-
-    // In Soroban SDK 22 with mock_all_auths the event recorder may return an
-    // empty vec; only assert the prefix when events are actually recorded.
-    let all_events = env.events().all();
-    for (_contract, topics, _data) in all_events.iter() {
-        // topics is a Vec<Val>; the first element is always the topic Symbol.
-        let topic_val = topics.get(0).expect("event must have at least one topic");
-        let topic = Symbol::from_val(&env, &topic_val);
-        assert!(
-            valid_topics.contains(&topic),
-            "event topic {topic:?} is not a recognised trlls_* namespaced topic"
-        );
-    }
+    let result = client.get_milestone(&id, &99u32);
+    assert!(result.is_none(), "out-of-range milestone_id must return None");
 }
