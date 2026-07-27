@@ -8,6 +8,9 @@ mod types;
 #[cfg(test)]
 mod test;
 
+#[cfg(test)]
+mod test_properties;
+
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Vec};
 
 use errors::TrellisError;
@@ -65,6 +68,8 @@ impl TrellisContract {
         if dispute_resolver == payer || dispute_resolver == payee {
             return Err(TrellisError::ResolverCannotBeParty);
         }
+
+        let total_amount = validate_milestones(&milestones)?;
 
         let agreement = Agreement {
             agreement_id: agreement_id.clone(),
