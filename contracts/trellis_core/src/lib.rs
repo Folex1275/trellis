@@ -66,6 +66,8 @@ impl TrellisContract {
             return Err(TrellisError::ResolverCannotBeParty);
         }
 
+        let total_amount = validate_milestones(&milestones)?;
+
         let agreement = Agreement {
             agreement_id: agreement_id.clone(),
             payer: payer.clone(),

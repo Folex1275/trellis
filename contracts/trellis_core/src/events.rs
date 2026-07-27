@@ -81,8 +81,9 @@ pub fn funds_released(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, am
 /// Emitted when either party raises a dispute on a funded or work-submitted milestone.
 ///
 /// Topics: `("disputed", agreement_id)`
-/// Data:   `milestone_id`
-pub fn dispute_raised(env: &Env, agreement_id: BytesN<32>, milestone_id: u32) {
+/// Data:   `(milestone_id, caller)` — includes the address that raised the dispute
+///         so indexers can distinguish payer-initiated from payee-initiated disputes.
+pub fn dispute_raised(env: &Env, agreement_id: BytesN<32>, milestone_id: u32, caller: Address) {
     env.events().publish(
         (symbol_short!("disputed"), agreement_id.clone()),
         (milestone_id, caller),
