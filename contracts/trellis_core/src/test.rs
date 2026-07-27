@@ -306,6 +306,62 @@ fn test_multi_milestone_transitions() {
     assert_eq!(second.status, EscrowStatus::Pending);
 }
 
+/// batch_lock_funds funds every milestone in the supplied list in one call.
+#[test]
+fn test_batch_lock_funds() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let token_client = token::TokenClient::new(&env, &token_address);
+    let id = agreement_id(&env, 10);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let funded = client.batch_lock_funds(&id, &milestone_ids);
+
+    assert_eq!(funded, 2u32, "both milestones should be funded");
+    assert_eq!(
+        token_client.balance(&client.address),
+        1_000,
+        "contract balance should equal sum of locked milestones"
+    );
+    assert_eq!(
+        token_client.balance(&payer),
+        9_000,
+        "payer balance should decrease by the total locked amount"
+    );
+}
+
+/// batch_lock_funds short-circuits on the first already-funded milestone.
+#[test]
+fn test_batch_lock_funds_partial_failure() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 11);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+    client.lock_funds(&id, &0u32);
+
+    // milestone 0 is already Funded — the batch must fail atomically.
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let result = client.try_batch_lock_funds(&id, &milestone_ids);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "batch should fail when a milestone is not Pending"
+    );
+}
+
 /// get_agreement returns the correct Agreement after init, and AgreementNotFound
 /// for an ID that was never initialized.
 #[test]
