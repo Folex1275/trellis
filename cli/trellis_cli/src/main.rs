@@ -38,5 +38,18 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
     let config = config::Config::from_env();
+
+    if let Err(missing) = config.validate() {
+        eprintln!("error: the following required environment variables are not set:");
+        for var in &missing {
+            eprintln!("  {var}");
+        }
+        eprintln!();
+        eprintln!("Set them before running trellis, for example:");
+        eprintln!("  export TRELLIS_CONTRACT_ID=<your-contract-address>");
+        eprintln!("  export TRELLIS_SOURCE_KEY=<your-stellar-secret-key-or-identity>");
+        std::process::exit(1);
+    }
+
     commands::dispatch(cli.command, &config);
 }
