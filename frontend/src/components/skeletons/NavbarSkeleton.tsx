@@ -7,7 +7,7 @@ function NavbarSkeleton() {
     <nav
       role="status"
       aria-label="Loading navigation"
-      className="bg-[#0A0E17] border-b border-navy-700 px-6 py-4 flex items-center justify-between"
+      className="bg-navy-900 border-b border-navy-700 px-6 py-4 flex items-center justify-between"
     >
       <div className="flex items-center gap-6">
         <SkeletonBox width="5rem" height="1.5rem" />

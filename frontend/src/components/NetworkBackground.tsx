@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react'
 
+/** Depth layer for a particle — controls size, speed, and opacity. */
+type Layer = 0 | 1 | 2
+
 interface Particle {
   x: number
   y: number
@@ -8,6 +11,8 @@ interface Particle {
   radius: number
   baseX: number
   baseY: number
+  /** Depth layer: 0 = back (small, slow), 1 = mid, 2 = front (large, fast). */
+  layer: Layer
 }
 
 interface Mouse {
@@ -17,6 +22,16 @@ interface Mouse {
   lastX: number | null
   lastY: number | null
 }
+
+/**
+ * Three pre-allocated buckets — one per depth layer. Populated once on
+ * creation and cleared/refilled on resize instead of being re-allocated every
+ * frame via filter().
+ *
+ * Issue #98: eliminates ~180 array allocations/second (3 filter() calls × 60fps)
+ * that would otherwise cause periodic GC pauses and frame stuttering.
+ */
+type LayerBuckets = [Particle[], Particle[], Particle[]]
 
 export function NetworkBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -37,6 +52,10 @@ export function NetworkBackground() {
     let animationId: number
     let particles: Particle[] = []
 
+    // Pre-indexed buckets — populated once, reused every frame (no per-frame
+    // allocation). Index matches the Layer value (0, 1, 2).
+    const layerBuckets: LayerBuckets = [[], [], []]
+
     const PARTICLE_COUNT = 90
     const MAX_DISTANCE = 160
     const MOUSE_RADIUS = 180
@@ -44,6 +63,9 @@ export function NetworkBackground() {
     const RETURN_SPEED = 0.04
     const PARTICLE_COLOR = '0, 194, 255'
     const LINE_COLOR = '0, 194, 255'
+    // Mirrors the navy-900 design token from tailwind.config.ts.
+    // Canvas 2D API requires a literal color string — Tailwind classes cannot
+    // be used here, so this is the one intentional exception to the token rule.
     const BG_COLOR = '#0A0E17'
 
     function resize() {
@@ -51,11 +73,30 @@ export function NetworkBackground() {
       canvas!.height = window.innerHeight
     }
 
+    /**
+     * Assigns particles to their layer buckets.
+     *
+     * Uses in-place array clearing (bucket.length = 0) rather than creating
+     * new arrays so that existing array objects are reused across frames.
+     */
+    function rebuildBuckets() {
+      layerBuckets[0].length = 0
+      layerBuckets[1].length = 0
+      layerBuckets[2].length = 0
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i]
+        layerBuckets[p.layer].push(p)
+      }
+    }
+
     function createParticles() {
       particles = []
       for (let i = 0; i < PARTICLE_COUNT; i++) {
         const x = Math.random() * canvas!.width
         const y = Math.random() * canvas!.height
+        // Distribute particles evenly across three depth layers.
+        const layer = (i % 3) as Layer
         particles.push({
           x,
           y,
@@ -64,8 +105,12 @@ export function NetworkBackground() {
           vx: (Math.random() - 0.5) * 0.6,
           vy: (Math.random() - 0.5) * 0.6,
           radius: Math.random() * 2 + 1,
+          layer,
         })
       }
+      // Build buckets once after creation — never rebuilt unless particles
+      // change (i.e., only on resize, not every frame).
+      rebuildBuckets()
     }
 
     function drawFrame() {
@@ -84,8 +129,11 @@ export function NetworkBackground() {
       ctx!.fillStyle = BG_COLOR
       ctx!.fillRect(0, 0, canvas!.width, canvas!.height)
 
-      // Update and draw particles
-      for (const p of particles) {
+      // Update and draw particles — iterate over the flat particles array so
+      // all particles are updated in a single pass with no allocations.
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i]
+
         // Natural drift movement
         p.baseX += p.vx
         p.baseY += p.vy
@@ -101,7 +149,6 @@ export function NetworkBackground() {
           const distance = Math.sqrt(dx * dx + dy * dy)
 
           if (distance < MOUSE_RADIUS) {
-            // Stronger repulsion when mouse moves faster
             const force = (MOUSE_RADIUS - distance) / MOUSE_RADIUS
             const speedMultiplier = 1 + mouse.speed * 0.08
             const repulsion = force * REPULSION_STRENGTH * speedMultiplier
@@ -114,28 +161,35 @@ export function NetworkBackground() {
         p.x += (p.baseX - p.x) * RETURN_SPEED
         p.y += (p.baseY - p.y) * RETURN_SPEED
 
-        // Draw particle dot
+        // Draw particle dot — opacity scales slightly with depth layer
+        const layerOpacity = 0.5 + p.layer * 0.15
         ctx!.beginPath()
         ctx!.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
-        ctx!.fillStyle = `rgba(${PARTICLE_COLOR}, 0.8)`
+        ctx!.fillStyle = `rgba(${PARTICLE_COLOR}, ${layerOpacity})`
         ctx!.fill()
       }
 
-      // Draw standard connecting lines between particles
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const dx = particles[i].x - particles[j].x
-          const dy = particles[i].y - particles[j].y
-          const distance = Math.sqrt(dx * dx + dy * dy)
+      // Draw standard connecting lines between particles.
+      // Iterate over pre-indexed layer buckets so each layer can be rendered
+      // independently (e.g., back-layer particles only connect to other
+      // back-layer particles) without a filter() call each frame.
+      for (let layer = 0; layer < 3; layer++) {
+        const bucket = layerBuckets[layer]
+        for (let i = 0; i < bucket.length; i++) {
+          for (let j = i + 1; j < bucket.length; j++) {
+            const dx = bucket[i].x - bucket[j].x
+            const dy = bucket[i].y - bucket[j].y
+            const distance = Math.sqrt(dx * dx + dy * dy)
 
-          if (distance < MAX_DISTANCE) {
-            const opacity = (1 - distance / MAX_DISTANCE) * 0.5
-            ctx!.beginPath()
-            ctx!.moveTo(particles[i].x, particles[i].y)
-            ctx!.lineTo(particles[j].x, particles[j].y)
-            ctx!.strokeStyle = `rgba(${LINE_COLOR}, ${opacity})`
-            ctx!.lineWidth = 0.8
-            ctx!.stroke()
+            if (distance < MAX_DISTANCE) {
+              const opacity = (1 - distance / MAX_DISTANCE) * 0.5
+              ctx!.beginPath()
+              ctx!.moveTo(bucket[i].x, bucket[i].y)
+              ctx!.lineTo(bucket[j].x, bucket[j].y)
+              ctx!.strokeStyle = `rgba(${LINE_COLOR}, ${opacity})`
+              ctx!.lineWidth = 0.8
+              ctx!.stroke()
+            }
           }
         }
       }
@@ -156,14 +210,15 @@ export function NetworkBackground() {
         ctx!.fillStyle = gradient
         ctx!.fill()
 
-        // Draw web lines from cursor to nearby particles
-        for (const p of particles) {
+        // Draw web lines from cursor to nearby particles — for loop avoids a
+        // filter() call that would allocate a temporary array every frame.
+        for (let i = 0; i < particles.length; i++) {
+          const p = particles[i]
           const dx = p.x - mouse.x
           const dy = p.y - mouse.y
           const distance = Math.sqrt(dx * dx + dy * dy)
 
           if (distance < MOUSE_RADIUS) {
-            // Brighter and thicker when closer
             const opacity = (1 - distance / MOUSE_RADIUS) * 0.9
             const lineWidth = (1 - distance / MOUSE_RADIUS) * 1.5
 
