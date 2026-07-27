@@ -440,3 +440,127 @@ fn test_approve_on_completed_milestone_fails() {
         "approve_and_release on an already-Completed milestone must return InvalidStateTransition"
     );
 }
+
+// ===========================================================================
+// #59 — Multi-milestone state isolation tests
+// ===========================================================================
+
+/// Three-milestone agreement where each milestone follows a distinct path:
+///   milestone 0 → full happy path (Completed)
+///   milestone 1 → funded then disputed then refunded to payer (Refunded)
+///   milestone 2 → never funded, then cancelled (Refunded via cancel)
+///
+/// Verifies that transitions on one milestone do not affect any other.
+#[test]
+fn test_multi_milestone_state_isolation() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let token_client = token::TokenClient::new(&env, &token_address);
+    let id = agreement_id(&env, 20);
+
+    // setup() mints 10_000 to payer; amounts total 3_000.
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 1_000, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 1_000, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 2, amount: 1_000, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &milestones,
+        &dispute_resolver,
+    );
+
+    // ── Milestone 0: happy path ───────────────────────────────────────────
+    client.lock_funds(&id, &0u32);
+    client.submit_work(&id, &0u32, &Some(String::from_str(&env, "ipfs://m0")));
+    client.approve_and_release(&id, &0u32);
+
+    // ── Milestone 1: dispute → refund to payer ────────────────────────────
+    client.lock_funds(&id, &1u32);
+    client.raise_dispute(&payer, &id, &1u32);
+    let payer_balance_before_refund = token_client.balance(&payer);
+    client.resolve_dispute(&id, &1u32, &true);
+
+    // ── Milestone 2: never funded → cancelled ────────────────────────────
+    client.cancel_unfunded_milestone(&id, &2u32);
+
+    // ── Assertions ────────────────────────────────────────────────────────
+    let agreement = client.get_agreement(&id);
+
+    let m0 = agreement.milestones.get(0).expect("milestone 0 must exist");
+    let m1 = agreement.milestones.get(1).expect("milestone 1 must exist");
+    let m2 = agreement.milestones.get(2).expect("milestone 2 must exist");
+
+    assert_eq!(m0.status, EscrowStatus::Completed,
+        "milestone 0 must be Completed after happy path");
+    assert_eq!(m1.status, EscrowStatus::Refunded,
+        "milestone 1 must be Refunded after dispute → payer wins");
+    assert_eq!(m2.status, EscrowStatus::Refunded,
+        "milestone 2 must be Refunded after cancel_unfunded_milestone");
+
+    // Payee got only milestone 0 funds.
+    assert_eq!(token_client.balance(&payee), 1_000,
+        "payee should have received exactly milestone 0 amount");
+    // Payer got milestone 1 refunded.
+    assert_eq!(
+        token_client.balance(&payer),
+        payer_balance_before_refund + 1_000,
+        "payer should have received milestone 1 refund"
+    );
+    // Contract holds nothing.
+    assert_eq!(token_client.balance(&client.address), 0,
+        "contract should hold no funds after all milestones are settled");
+}
+
+/// Two milestones funded in reverse order (1 then 0) verifies that milestone
+/// state is keyed by index and not dependent on funding order.
+#[test]
+fn test_multi_milestone_funding_order_independent() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 21);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 700, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &milestones,
+        &dispute_resolver,
+    );
+
+    // Fund milestone 1 first, then milestone 0.
+    client.lock_funds(&id, &1u32);
+    client.lock_funds(&id, &0u32);
+
+    let agreement = client.get_agreement(&id);
+    let m0 = agreement.milestones.get(0).expect("milestone 0 must exist");
+    let m1 = agreement.milestones.get(1).expect("milestone 1 must exist");
+
+    assert_eq!(m0.status, EscrowStatus::Funded,
+        "milestone 0 must be Funded after lock");
+    assert_eq!(m1.status, EscrowStatus::Funded,
+        "milestone 1 must be Funded after lock");
+
+    // Transitioning milestone 0 must not change milestone 1.
+    client.submit_work(&id, &0u32, &None);
+    client.approve_and_release(&id, &0u32);
+
+    let agreement = client.get_agreement(&id);
+    let m0 = agreement.milestones.get(0).expect("milestone 0 must exist");
+    let m1 = agreement.milestones.get(1).expect("milestone 1 must exist");
+
+    assert_eq!(m0.status, EscrowStatus::Completed,
+        "milestone 0 must be Completed after approve");
+    assert_eq!(m1.status, EscrowStatus::Funded,
+        "milestone 1 must remain Funded — unaffected by milestone 0 completion");
+}
