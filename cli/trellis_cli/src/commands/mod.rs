@@ -124,6 +124,17 @@ pub enum Commands {
         #[arg(long)]
         agreement_id: String,
     },
+
+    /// Query the current status of a single milestone (cheaper than fetching the full agreement).
+    MilestoneStatus {
+        /// Agreement ID (hex-encoded, 64 chars).
+        #[arg(long)]
+        agreement_id: String,
+
+        /// Zero-based index of the milestone to query.
+        #[arg(long)]
+        milestone_id: u32,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +194,11 @@ pub fn dispatch(cmd: Commands, config: &Config) {
         } => run_cancel_milestone(config, agreement_id, milestone_id),
 
         Commands::Status { agreement_id } => run_status(config, agreement_id),
+
+        Commands::MilestoneStatus {
+            agreement_id,
+            milestone_id,
+        } => run_milestone_status(config, agreement_id, milestone_id),
     }
 }
 
@@ -388,6 +404,28 @@ fn run_status(config: &Config, agreement_id: String) {
     ];
 
     let out = RpcClient::invoke(config, "get_agreement", &args);
+    print_output(&out);
+}
+
+/// `stellar contract invoke … -- get_milestone …`
+///
+/// Final call signature:
+/// ```
+/// stellar contract invoke … -- get_milestone
+///   --agreement-id <hex> --milestone-id <u32>
+/// ```
+///
+/// Queries a single milestone by index without fetching the full Agreement,
+/// reducing deserialization cost for agreements with many milestones.
+fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) {
+    let args = vec![
+        "--agreement-id".to_string(),
+        format!("\"{}\"", agreement_id),
+        "--milestone-id".to_string(),
+        milestone_id.to_string(),
+    ];
+
+    let out = RpcClient::invoke(config, "get_milestone", &args);
     print_output(&out);
 }
 

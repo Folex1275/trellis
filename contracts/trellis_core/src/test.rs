@@ -412,3 +412,44 @@ fn test_get_agreement() {
         "error must be AgreementNotFound"
     );
 }
+
+/// get_milestone returns the correct milestone for a valid index.
+#[test]
+fn test_get_milestone_returns_correct_milestone() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 20);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 100, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 200, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+
+    let m = client.get_milestone(&id, &1u32);
+    assert!(m.is_some(), "milestone 1 must be found");
+    let m = m.unwrap();
+    assert_eq!(m.id, 1, "id must match the requested index");
+    assert_eq!(m.amount, 200, "amount must match");
+    assert_eq!(m.status, EscrowStatus::Pending, "status must be Pending");
+}
+
+/// get_milestone returns None for an out-of-range milestone_id.
+#[test]
+fn test_get_milestone_invalid_id_returns_none() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 21);
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 100),
+        &dispute_resolver,
+    );
+
+    let result = client.get_milestone(&id, &99u32);
+    assert!(result.is_none(), "out-of-range milestone_id must return None");
+}
