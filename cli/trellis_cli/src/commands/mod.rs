@@ -130,7 +130,7 @@ pub enum Commands {
 // Dispatch — route each command to its handler
 // ---------------------------------------------------------------------------
 
-pub fn dispatch(cmd: Commands, config: &Config) {
+pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
     match cmd {
         Commands::Init {
             agreement_id,
@@ -207,7 +207,7 @@ fn run_init(
     token: String,
     resolver: String,
     milestones_csv: String,
-) {
+) -> Result<(), String> {
     let milestones_json = build_milestones_json(&milestones_csv);
 
     let args = vec![
@@ -226,7 +226,7 @@ fn run_init(
     ];
 
     let out = RpcClient::invoke(config, "init", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- lock_funds …`
@@ -236,7 +236,7 @@ fn run_init(
 /// stellar contract invoke … -- lock_funds
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -245,7 +245,7 @@ fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) {
     ];
 
     let out = RpcClient::invoke(config, "lock_funds", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- submit_work …`
@@ -265,7 +265,7 @@ fn run_submit_work(
     agreement_id: String,
     milestone_id: u32,
     proof_uri: Option<String>,
-) {
+) -> Result<(), String> {
     let mut args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -279,7 +279,7 @@ fn run_submit_work(
     }
 
     let out = RpcClient::invoke(config, "submit_work", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- approve_and_release …`
@@ -289,7 +289,7 @@ fn run_submit_work(
 /// stellar contract invoke … -- approve_and_release
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -298,7 +298,7 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
     ];
 
     let out = RpcClient::invoke(config, "approve_and_release", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- raise_dispute …`
@@ -312,7 +312,7 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
 /// `caller` is passed explicitly because the contract checks it against
 /// both `agreement.payer` and `agreement.payee` before calling
 /// `caller.require_auth()`, so either party can autonomously open a dispute.
-fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) {
+fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -323,7 +323,7 @@ fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, c
     ];
 
     let out = RpcClient::invoke(config, "raise_dispute", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- resolve_dispute …`
@@ -338,7 +338,7 @@ fn run_resolve_dispute(
     agreement_id: String,
     milestone_id: u32,
     refund_to_payer: bool,
-) {
+) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -349,7 +349,7 @@ fn run_resolve_dispute(
     ];
 
     let out = RpcClient::invoke(config, "resolve_dispute", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- cancel_unfunded_milestone …`
@@ -359,7 +359,7 @@ fn run_resolve_dispute(
 /// stellar contract invoke … -- cancel_unfunded_milestone
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -368,7 +368,7 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
     ];
 
     let out = RpcClient::invoke(config, "cancel_unfunded_milestone", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- get_agreement …`
@@ -381,14 +381,14 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
 ///
 /// The stellar CLI calls the contract's `get_agreement` view function and
 /// returns the full Agreement struct as JSON, which is printed to stdout.
-fn run_status(config: &Config, agreement_id: String) {
+fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
     ];
 
     let out = RpcClient::invoke(config, "get_agreement", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 // ---------------------------------------------------------------------------
@@ -435,18 +435,26 @@ fn build_milestones_json(csv: &str) -> String {
 
 /// Print the result of an RPC call.
 /// On failure, prints the full verbatim command so the user can reproduce it.
-fn print_output(out: &crate::rpc::InvokeOutput) {
+///
+/// Returns `Ok(())` on success or `Err(message)` on failure so that
+/// callers (i.e. `main`) can run any cleanup before exiting with a non-zero
+/// exit code.  This avoids calling `std::process::exit` inside a library
+/// function, which would skip destructors and flush buffers unsafely.
+fn print_output(out: &crate::rpc::InvokeOutput) -> Result<(), String> {
     if out.success {
         println!("{}", out.stdout.trim());
+        Ok(())
     } else {
-        eprintln!("── Transaction failed ──────────────────────────────────");
-        eprintln!("Command: {}", out.command_debug);
+        let mut msg = format!(
+            "── Transaction failed ──────────────────────────────────\nCommand: {}",
+            out.command_debug
+        );
         if !out.stdout.is_empty() {
-            eprintln!("stdout:\n{}", out.stdout.trim());
+            msg.push_str(&format!("\nstdout:\n{}", out.stdout.trim()));
         }
         if !out.stderr.is_empty() {
-            eprintln!("stderr:\n{}", out.stderr.trim());
+            msg.push_str(&format!("\nstderr:\n{}", out.stderr.trim()));
         }
-        std::process::exit(1);
+        Err(msg)
     }
 }
