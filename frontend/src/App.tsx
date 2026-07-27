@@ -3,6 +3,7 @@ import Navbar from './components/Navbar'
 import { ExplorerLink } from './components/ExplorerLink'
 import { NetworkBackground } from './components/NetworkBackground'
 import { WalletProvider } from './context/WalletContext'
+import ToastProvider from './components/toast/ToastProvider'
 import { CONTRACT_ID } from './lib/config'
 import { explorerBaseUrl, networkLabel } from './lib/explorer'
 import { useRoute, initializeRouter } from './lib/router'
@@ -32,6 +33,7 @@ function App() {
 
   return (
     <WalletProvider>
+      <ToastProvider>
       <div className="relative min-h-screen text-gray-200 dark:text-gray-200 light:text-gray-900 bg-navy-900 dark:bg-navy-900 light:bg-white">
         <NetworkBackground />
         <div className="relative z-10">
@@ -74,6 +76,7 @@ function App() {
           </p>
         </footer>
       </div>
+      </ToastProvider>
     </WalletProvider>
   )
 }
