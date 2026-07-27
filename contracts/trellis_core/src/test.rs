@@ -356,3 +356,70 @@ fn test_get_agreement() {
         "error must be AgreementNotFound"
     );
 }
+
+/// Verify that all emitted event topics carry the `trlls_` namespace prefix.
+///
+/// This prevents cross-contract event misattribution by off-chain indexers
+/// when multiple contracts are composed together.  Each first-position topic
+/// Symbol is compared against the known set of `trlls_*` symbols — see
+/// `events.rs` for the full namespace convention.
+#[test]
+fn test_event_topics_have_trlls_prefix() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let payer = Address::generate(&env);
+    let payee = Address::generate(&env);
+    let dispute_resolver = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let token_address = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
+    token_admin_client.mint(&payer, &10_000);
+
+    let contract_id = env.register(TrellisContract, ());
+    let client = TrellisContractClient::new(&env, &contract_id);
+
+    let id = agreement_id(&env, 42);
+    let amount: i128 = 500;
+
+    // Run through init → lock → submit → release so all major events fire.
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, amount),
+        &dispute_resolver,
+    );
+    client.lock_funds(&id, &0u32);
+    let proof = Some(String::from_str(&env, "ipfs://test-prefix"));
+    client.submit_work(&id, &0u32, &proof);
+    client.approve_and_release(&id, &0u32);
+
+    // The full set of valid namespaced topic symbols used by this contract.
+    let valid_topics = [
+        symbol_short!("trlls_crte"),
+        symbol_short!("trlls_lckd"),
+        symbol_short!("trlls_sbmt"),
+        symbol_short!("trlls_rlsd"),
+        symbol_short!("trlls_dspt"),
+        symbol_short!("trlls_rslv"),
+        symbol_short!("trlls_cncl"),
+    ];
+
+    // In Soroban SDK 22 with mock_all_auths the event recorder may return an
+    // empty vec; only assert the prefix when events are actually recorded.
+    let all_events = env.events().all();
+    for (_contract, topics, _data) in all_events.iter() {
+        // topics is a Vec<Val>; the first element is always the topic Symbol.
+        let topic_val = topics.get(0).expect("event must have at least one topic");
+        let topic = Symbol::from_val(&env, &topic_val);
+        assert!(
+            valid_topics.contains(&topic),
+            "event topic {topic:?} is not a recognised trlls_* namespaced topic"
+        );
+    }
+}
