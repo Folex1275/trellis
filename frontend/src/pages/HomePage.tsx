@@ -1,4 +1,5 @@
 import { useNavigate as useNavigateRouter } from '../lib/router';
+import { StatsBar } from '../components/StatsBar';
 
 export default function HomePage() {
   const navigate = useNavigateRouter();
@@ -13,6 +14,10 @@ export default function HomePage() {
           <p className="mt-4 text-gray-400 text-lg sm:text-xl max-w-xl">
             Built on Stellar's Soroban smart contract platform
           </p>
+
+          {/* Live on-chain stats — no fabricated metrics */}
+          <StatsBar />
+
           <div className="mt-10 flex flex-col sm:flex-row gap-4">
             <button
               onClick={() => navigate('/create')}
