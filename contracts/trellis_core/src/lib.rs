@@ -8,6 +8,9 @@ mod types;
 #[cfg(test)]
 mod test;
 
+#[cfg(test)]
+mod test_properties;
+
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Vec};
 
 use errors::TrellisError;
