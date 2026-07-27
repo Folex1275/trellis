@@ -8,6 +8,9 @@ mod types;
 #[cfg(test)]
 mod test;
 
+#[cfg(test)]
+mod test_properties;
+
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Vec};
 
 use errors::TrellisError;
@@ -409,6 +412,78 @@ impl TrellisContract {
     /// the given `agreement_id`.
     pub fn get_total_amount(env: Env, agreement_id: BytesN<32>) -> Result<i128, TrellisError> {
         storage::read_agreement(&env, &agreement_id).map(|agreement| agreement.total_amount)
+    }
+
+    /// Fund multiple milestones in a single transaction.
+    ///
+    /// Iterates `milestone_ids` in order, applying the same logic as
+    /// [`Self::lock_funds`] for each entry.  The entire call is atomic: if any
+    /// milestone fails (out of range, wrong status), the transaction reverts and
+    /// no tokens are transferred.  Individual `funds_locked` events are emitted
+    /// for each successfully funded milestone so off-chain indexers retain the
+    /// same per-milestone event granularity as sequential calls.
+    ///
+    /// The payer authorises this call once and the auth covers all transfers
+    /// within the batch.
+    ///
+    /// # Errors
+    /// - [`TrellisError::AgreementNotFound`] – unknown agreement ID.
+    /// - [`TrellisError::InvalidMilestone`] – any ID in `milestone_ids` is out of range.
+    /// - [`TrellisError::InvalidStateTransition`] – any milestone is not `Pending`.
+    pub fn batch_lock_funds(
+        env: Env,
+        agreement_id: BytesN<32>,
+        milestone_ids: Vec<u32>,
+    ) -> Result<u32, TrellisError> {
+        let mut agreement = storage::read_agreement(&env, &agreement_id)?;
+        agreement.payer.require_auth();
+
+        let token = token::Client::new(&env, &agreement.token);
+        let mut funded: u32 = 0;
+
+        for milestone_id in milestone_ids.iter() {
+            let mut milestone = agreement
+                .milestones
+                .get(milestone_id)
+                .ok_or(TrellisError::InvalidMilestone)?;
+
+            if milestone.status != EscrowStatus::Pending {
+                return Err(TrellisError::InvalidStateTransition);
+            }
+
+            let amount = milestone.amount;
+            token.transfer(&agreement.payer, &env.current_contract_address(), &amount);
+
+            milestone.status = EscrowStatus::Funded;
+            agreement.milestones.set(milestone_id, milestone);
+
+            events::funds_locked(&env, agreement_id.clone(), milestone_id, amount);
+            funded += 1;
+        }
+
+        storage::write_agreement(&env, &agreement_id, &agreement);
+
+        Ok(funded)
+    }
+
+    /// Return a single [`Milestone`] by its index within the agreement.
+    ///
+    /// This is a read-only view — no auth required, no state modified.  It lets
+    /// callers query one milestone's current status without deserializing the
+    /// full [`Agreement`] struct, which reduces ledger read cost for agreements
+    /// with many milestones.
+    ///
+    /// Returns `None` if the agreement does not exist or `milestone_id` is out
+    /// of range — both map to the same observable absence from the caller's
+    /// perspective.
+    pub fn get_milestone(
+        env: Env,
+        agreement_id: BytesN<32>,
+        milestone_id: u32,
+    ) -> Option<Milestone> {
+        storage::read_agreement(&env, &agreement_id)
+            .ok()
+            .and_then(|agreement| agreement.milestones.get(milestone_id))
     }
 
     /// Renew the ledger TTL of an agreement without changing its state.

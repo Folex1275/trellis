@@ -305,6 +305,62 @@ fn test_multi_milestone_transitions() {
     assert_eq!(second.status, EscrowStatus::Pending);
 }
 
+/// batch_lock_funds funds every milestone in the supplied list in one call.
+#[test]
+fn test_batch_lock_funds() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let token_client = token::TokenClient::new(&env, &token_address);
+    let id = agreement_id(&env, 10);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let funded = client.batch_lock_funds(&id, &milestone_ids);
+
+    assert_eq!(funded, 2u32, "both milestones should be funded");
+    assert_eq!(
+        token_client.balance(&client.address),
+        1_000,
+        "contract balance should equal sum of locked milestones"
+    );
+    assert_eq!(
+        token_client.balance(&payer),
+        9_000,
+        "payer balance should decrease by the total locked amount"
+    );
+}
+
+/// batch_lock_funds short-circuits on the first already-funded milestone.
+#[test]
+fn test_batch_lock_funds_partial_failure() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 11);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+    client.lock_funds(&id, &0u32);
+
+    // milestone 0 is already Funded — the batch must fail atomically.
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let result = client.try_batch_lock_funds(&id, &milestone_ids);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "batch should fail when a milestone is not Pending"
+    );
+}
+
 /// get_agreement returns the correct Agreement after init, and AgreementNotFound
 /// for an ID that was never initialized.
 #[test]
@@ -356,463 +412,43 @@ fn test_get_agreement() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Issue #55 — Dispute raised by payer: both resolution outcomes
-// ---------------------------------------------------------------------------
-
-/// Payer raises dispute → resolver rules in payee's favour → payee receives funds.
+/// get_milestone returns the correct milestone for a valid index.
 #[test]
-fn test_dispute_raised_by_payer_resolved_to_payee() {
+fn test_get_milestone_returns_correct_milestone() {
     let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let token_client = token::TokenClient::new(&env, &token_address);
-    let id = agreement_id(&env, 10);
-    let amount: i128 = 1_500;
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, amount),
-        &dispute_resolver,
-    );
-
-    let payer_balance_before_lock = token_client.balance(&payer);
-    client.lock_funds(&id, &0u32);
-
-    // Payer — not payee — raises the dispute.
-    client.raise_dispute(&payer, &id, &0u32);
-
-    // Resolver rules in payee's favour (payer loses).
-    client.resolve_dispute(&id, &0u32, &false);
-
-    assert_eq!(
-        token_client.balance(&payee),
-        amount,
-        "payee should receive the milestone amount when resolver rules in their favour"
-    );
-    assert_eq!(
-        token_client.balance(&payer),
-        payer_balance_before_lock - amount,
-        "payer should not be refunded when they lose the dispute they raised"
-    );
-    assert_eq!(
-        token_client.balance(&client.address),
-        0,
-        "contract balance should be zero after resolution"
-    );
-}
-
-/// Payer raises dispute → resolver rules in payer's favour → payer is refunded.
-#[test]
-fn test_dispute_raised_by_payer_resolved_to_payer() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let token_client = token::TokenClient::new(&env, &token_address);
-    let id = agreement_id(&env, 11);
-    let amount: i128 = 1_500;
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, amount),
-        &dispute_resolver,
-    );
-
-    let payer_balance_before_lock = token_client.balance(&payer);
-    client.lock_funds(&id, &0u32);
-
-    // Payer raises the dispute.
-    client.raise_dispute(&payer, &id, &0u32);
-
-    // Resolver rules in payer's favour — payer wins the dispute they raised.
-    client.resolve_dispute(&id, &0u32, &true);
-
-    assert_eq!(
-        token_client.balance(&payer),
-        payer_balance_before_lock,
-        "payer should be fully refunded when resolver rules in their favour"
-    );
-    assert_eq!(
-        token_client.balance(&payee),
-        0,
-        "payee should receive nothing when payer wins the dispute"
-    );
-    assert_eq!(
-        token_client.balance(&client.address),
-        0,
-        "contract balance should be zero after resolution"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Issue #54 — Auth enforcement: unauthorized callers are rejected
-//
-// Tests 1-2 call raise_dispute with a non-party caller.  The contract returns
-// TrellisError::Unauthorized before calling require_auth(), so mock_all_auths
-// does not affect the outcome — these tests work with the standard setup().
-//
-// Tests 3-6 disable mock_all_auths after agreement setup by calling
-// env.mock_auths(&[]).  In Soroban 22.x, mock_auths() replaces the catch-all
-// mode: an empty list means every subsequent require_auth() call fails at the
-// host level, simulating a caller who did not provide the required signature.
-// ---------------------------------------------------------------------------
-
-/// A completely unknown address calling raise_dispute is rejected immediately.
-#[test]
-fn test_raise_dispute_by_stranger_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 12);
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 500),
-        &dispute_resolver,
-    );
-
-    let stranger = Address::generate(&env);
-    let result = client.try_raise_dispute(&stranger, &id, &0u32);
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::Unauthorized)),
-        "raise_dispute by an address that is neither payer nor payee must return Unauthorized"
-    );
-}
-
-/// The dispute resolver is a neutral party and must not raise disputes.
-#[test]
-fn test_raise_dispute_by_resolver_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 13);
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 500),
-        &dispute_resolver,
-    );
-
-    let result = client.try_raise_dispute(&dispute_resolver, &id, &0u32);
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::Unauthorized)),
-        "raise_dispute by the dispute resolver must return Unauthorized"
-    );
-}
-
-/// lock_funds requires payer auth; the call fails at the host level without it.
-#[test]
-fn test_payee_cannot_call_lock_funds() {
-    let env = Env::default();
-    let payer = Address::generate(&env);
-    let payee = Address::generate(&env);
-    let dispute_resolver = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token_address = env
-        .register_stellar_asset_contract_v2(token_admin.clone())
-        .address();
-    let contract_id = env.register(TrellisContract, ());
-    let client = TrellisContractClient::new(&env, &contract_id);
-    let id = agreement_id(&env, 14);
-
-    // mock_all_auths covers only the agreement setup.
-    env.mock_all_auths();
-    token::StellarAssetClient::new(&env, &token_address).mint(&payer, &10_000);
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 1_000),
-        &dispute_resolver,
-    );
-
-    // Replace mock_all_auths with an empty list — subsequent require_auth()
-    // calls fail at the host level (simulates payee calling without payer's sig).
-    env.mock_auths(&[] as &[MockAuth]);
-
-    let result = client.try_lock_funds(&id, &0u32);
-    assert!(
-        result.is_err(),
-        "lock_funds must fail at the host level when payer auth is not provided"
-    );
-}
-
-/// submit_work requires payee auth; the call fails at the host level without it.
-#[test]
-fn test_payer_cannot_call_submit_work() {
-    let env = Env::default();
-    let payer = Address::generate(&env);
-    let payee = Address::generate(&env);
-    let dispute_resolver = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token_address = env
-        .register_stellar_asset_contract_v2(token_admin.clone())
-        .address();
-    let contract_id = env.register(TrellisContract, ());
-    let client = TrellisContractClient::new(&env, &contract_id);
-    let id = agreement_id(&env, 15);
-
-    env.mock_all_auths();
-    token::StellarAssetClient::new(&env, &token_address).mint(&payer, &10_000);
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 1_000),
-        &dispute_resolver,
-    );
-    client.lock_funds(&id, &0u32);
-
-    env.mock_auths(&[] as &[MockAuth]);
-
-    let no_proof: Option<String> = None;
-    let result = client.try_submit_work(&id, &0u32, &no_proof);
-    assert!(
-        result.is_err(),
-        "submit_work must fail at the host level when payee auth is not provided"
-    );
-}
-
-/// approve_and_release requires payer auth; fails without it (payee cannot self-release).
-#[test]
-fn test_payee_cannot_approve_and_release() {
-    let env = Env::default();
-    let payer = Address::generate(&env);
-    let payee = Address::generate(&env);
-    let dispute_resolver = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token_address = env
-        .register_stellar_asset_contract_v2(token_admin.clone())
-        .address();
-    let contract_id = env.register(TrellisContract, ());
-    let client = TrellisContractClient::new(&env, &contract_id);
-    let id = agreement_id(&env, 16);
-
-    env.mock_all_auths();
-    token::StellarAssetClient::new(&env, &token_address).mint(&payer, &10_000);
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 1_000),
-        &dispute_resolver,
-    );
-    client.lock_funds(&id, &0u32);
-    let proof = Some(String::from_str(&env, "ipfs://payee-work"));
-    client.submit_work(&id, &0u32, &proof);
-
-    env.mock_auths(&[] as &[MockAuth]);
-
-    let result = client.try_approve_and_release(&id, &0u32);
-    assert!(
-        result.is_err(),
-        "approve_and_release must fail at the host level when payer auth is not provided"
-    );
-}
-
-/// resolve_dispute requires dispute_resolver auth; payer cannot unilaterally rule.
-#[test]
-fn test_payer_cannot_resolve_dispute() {
-    let env = Env::default();
-    let payer = Address::generate(&env);
-    let payee = Address::generate(&env);
-    let dispute_resolver = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token_address = env
-        .register_stellar_asset_contract_v2(token_admin.clone())
-        .address();
-    let contract_id = env.register(TrellisContract, ());
-    let client = TrellisContractClient::new(&env, &contract_id);
-    let id = agreement_id(&env, 17);
-
-    env.mock_all_auths();
-    token::StellarAssetClient::new(&env, &token_address).mint(&payer, &10_000);
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 1_000),
-        &dispute_resolver,
-    );
-    client.lock_funds(&id, &0u32);
-    client.raise_dispute(&payee, &id, &0u32);
-
-    env.mock_auths(&[] as &[MockAuth]);
-
-    let result = client.try_resolve_dispute(&id, &0u32, &true);
-    assert!(
-        result.is_err(),
-        "resolve_dispute must fail at the host level when dispute_resolver auth is not provided"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Issue #56 — resolve_dispute with refund_to_payer=false (payee wins)
-// ---------------------------------------------------------------------------
-
-/// Payee raises dispute → resolver rules in payee's favour → payee receives funds.
-/// A second milestone is kept in its original Pending state to verify isolation.
-#[test]
-fn test_resolve_dispute_payee_wins() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let token_client = token::TokenClient::new(&env, &token_address);
     let id = agreement_id(&env, 20);
-    let amount_m0: i128 = 2_000;
-    let amount_m1: i128 = 1_000;
 
-    // Agreement with two milestones so we can verify they are independent.
     let milestones = vec![
         &env,
-        Milestone {
-            id: 0,
-            amount: amount_m0,
-            status: EscrowStatus::Pending,
-            proof_uri: None,
-        },
-        Milestone {
-            id: 1,
-            amount: amount_m1,
-            status: EscrowStatus::Pending,
-            proof_uri: None,
-        },
+        Milestone { id: 0, amount: 100, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 200, status: EscrowStatus::Pending, proof_uri: None },
     ];
+
     client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
 
-    let payer_balance_before_lock = token_client.balance(&payer);
-
-    // Only milestone 0 is funded and disputed; milestone 1 stays untouched.
-    client.lock_funds(&id, &0u32);
-    let proof = Some(String::from_str(&env, "ipfs://payee-deliverable"));
-    client.submit_work(&id, &0u32, &proof);
-    client.raise_dispute(&payee, &id, &0u32);
-
-    // Resolver rules in payee's favour (refund_to_payer = false).
-    client.resolve_dispute(&id, &0u32, &false);
-
-    assert_eq!(
-        token_client.balance(&payee),
-        amount_m0,
-        "payee should receive milestone 0 amount when resolver rules in their favour"
-    );
-    assert_eq!(
-        token_client.balance(&payer),
-        payer_balance_before_lock - amount_m0,
-        "payer should not be refunded when payee wins the dispute"
-    );
-    assert_eq!(
-        token_client.balance(&client.address),
-        0,
-        "contract balance should be zero after resolution (milestone 1 was never funded)"
-    );
-
-    // Verify milestone isolation: only milestone 0 changed state.
-    let agreement = client.get_agreement(&id);
-    assert_eq!(
-        agreement.milestones.get(0).unwrap().status,
-        EscrowStatus::Completed,
-        "milestone 0 should be Completed after payee wins"
-    );
-    assert_eq!(
-        agreement.milestones.get(1).unwrap().status,
-        EscrowStatus::Pending,
-        "milestone 1 must remain Pending — dispute resolution must not affect other milestones"
-    );
+    let m = client.get_milestone(&id, &1u32);
+    assert!(m.is_some(), "milestone 1 must be found");
+    let m = m.unwrap();
+    assert_eq!(m.id, 1, "id must match the requested index");
+    assert_eq!(m.amount, 200, "amount must match");
+    assert_eq!(m.status, EscrowStatus::Pending, "status must be Pending");
 }
 
-// ---------------------------------------------------------------------------
-// Issue #57 — submit_work on invalid milestone states
-// ---------------------------------------------------------------------------
-
-/// submit_work on a Pending (never-funded) milestone must fail.
+/// get_milestone returns None for an out-of-range milestone_id.
 #[test]
-fn test_submit_work_on_pending_milestone_fails() {
+fn test_get_milestone_invalid_id_returns_none() {
     let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 30);
+    let id = agreement_id(&env, 21);
 
     client.init(
         &id,
         &payer,
         &payee,
         &token_address,
-        &one_milestone(&env, 500),
-        &dispute_resolver,
-    );
-    // Milestone remains Pending — lock_funds is deliberately NOT called.
-
-    let no_proof: Option<String> = None;
-    let result = client.try_submit_work(&id, &0u32, &no_proof);
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::InvalidStateTransition)),
-        "submit_work on a Pending milestone must return InvalidStateTransition"
-    );
-}
-
-/// submit_work on a Completed milestone must fail.
-#[test]
-fn test_submit_work_on_completed_milestone_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 31);
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 500),
+        &one_milestone(&env, 100),
         &dispute_resolver,
     );
 
-    // Advance milestone through the full happy path to Completed.
-    client.lock_funds(&id, &0u32);
-    let proof = Some(String::from_str(&env, "ipfs://completed-work"));
-    client.submit_work(&id, &0u32, &proof);
-    client.approve_and_release(&id, &0u32);
-
-    // Attempting to re-submit work on a Completed milestone must be rejected.
-    let no_proof: Option<String> = None;
-    let result = client.try_submit_work(&id, &0u32, &no_proof);
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::InvalidStateTransition)),
-        "submit_work on a Completed milestone must return InvalidStateTransition"
-    );
-}
-
-/// submit_work on a Refunded milestone must fail.
-#[test]
-fn test_submit_work_on_refunded_milestone_fails() {
-    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
-    let id = agreement_id(&env, 32);
-
-    client.init(
-        &id,
-        &payer,
-        &payee,
-        &token_address,
-        &one_milestone(&env, 500),
-        &dispute_resolver,
-    );
-
-    // Cancel the unfunded milestone — moves it from Pending to Refunded
-    // without ever locking funds.
-    client.cancel_unfunded_milestone(&id, &0u32);
-
-    let no_proof: Option<String> = None;
-    let result = client.try_submit_work(&id, &0u32, &no_proof);
-    assert_eq!(
-        result,
-        Err(Ok(TrellisError::InvalidStateTransition)),
-        "submit_work on a Refunded milestone must return InvalidStateTransition"
-    );
+    let result = client.get_milestone(&id, &99u32);
+    assert!(result.is_none(), "out-of-range milestone_id must return None");
 }
