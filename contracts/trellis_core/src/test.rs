@@ -274,13 +274,13 @@ fn test_multi_milestone_transitions() {
             id: 0,
             amount: 1_000,
             status: EscrowStatus::Pending,
-            proof_uri: String::from_str(&env, ""),
+            proof_uri: None,
         },
         Milestone {
             id: 1,
             amount: 2_000,
             status: EscrowStatus::Pending,
-            proof_uri: String::from_str(&env, ""),
+            proof_uri: None,
         },
     ];
 
@@ -294,7 +294,7 @@ fn test_multi_milestone_transitions() {
     );
 
     client.lock_funds(&id, &0u32);
-    let proof = String::from_str(&env, "ipfs://multi-milestone");
+    let proof = Some(String::from_str(&env, "ipfs://multi-milestone"));
     client.submit_work(&id, &0u32, &proof);
     client.approve_and_release(&id, &0u32);
 
@@ -354,5 +354,89 @@ fn test_get_agreement() {
         result.err().unwrap(),
         Ok(TrellisError::AgreementNotFound),
         "error must be AgreementNotFound"
+    );
+}
+
+// ===========================================================================
+// #58 — Negative tests: approve_and_release on non-WorkSubmitted milestones
+// ===========================================================================
+
+/// approve_and_release on a Pending milestone must fail with
+/// InvalidStateTransition (no funds locked, no work submitted).
+#[test]
+fn test_approve_on_pending_milestone_fails() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 10);
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 500),
+        &dispute_resolver,
+    );
+
+    // Milestone is still Pending — approve must be rejected.
+    let result = client.try_approve_and_release(&id, &0u32);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "approve_and_release on a Pending milestone must return InvalidStateTransition"
+    );
+}
+
+/// approve_and_release on a Funded milestone (work not yet submitted) must
+/// fail with InvalidStateTransition — funds are locked but the payee has not
+/// delivered.
+#[test]
+fn test_approve_on_funded_milestone_fails() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 11);
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 500),
+        &dispute_resolver,
+    );
+    client.lock_funds(&id, &0u32);
+
+    // Milestone is Funded but work has not been submitted yet.
+    let result = client.try_approve_and_release(&id, &0u32);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "approve_and_release on a Funded milestone must return InvalidStateTransition"
+    );
+}
+
+/// approve_and_release on an already-Completed milestone (double-approve) must
+/// fail with InvalidStateTransition — funds are already gone.
+#[test]
+fn test_approve_on_completed_milestone_fails() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 12);
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 500),
+        &dispute_resolver,
+    );
+    client.lock_funds(&id, &0u32);
+    client.submit_work(&id, &0u32, &Some(String::from_str(&env, "ipfs://proof")));
+    client.approve_and_release(&id, &0u32);
+
+    // Milestone is now Completed — a second approve must be rejected.
+    let result = client.try_approve_and_release(&id, &0u32);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "approve_and_release on an already-Completed milestone must return InvalidStateTransition"
     );
 }
