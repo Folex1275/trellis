@@ -211,18 +211,16 @@ pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
 /// Rejects any value that could be used to inject additional CLI flags or
 /// smuggle shell metacharacters through the argument list.
 fn validate_agreement_id(id: &str) -> Result<(), String> {
+    if crate::utils::is_valid_hex(id, 64) {
+        return Ok(());
+    }
     if id.len() != 64 {
         return Err(format!(
             "agreement_id must be exactly 64 hex characters, got {}",
             id.len()
         ));
     }
-    if !id.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(
-            "agreement_id must contain only hexadecimal characters (0-9, a-f, A-F)".to_string(),
-        );
-    }
-    Ok(())
+    Err("agreement_id must contain only hexadecimal characters (0-9, a-f, A-F)".to_string())
 }
 
 /// Validate a proof URI: printable, non-empty, within a reasonable length cap.
@@ -272,7 +270,11 @@ fn run_init(
     token: String,
     resolver: String,
     milestones_csv: String,
-) {
+) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let milestones_json = build_milestones_json(&milestones_csv).unwrap_or_else(|e| {
         eprintln!("Error: {e}");
         std::process::exit(1);
@@ -305,6 +307,10 @@ fn run_init(
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
 fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -334,6 +340,10 @@ fn run_submit_work(
     milestone_id: u32,
     proof_uri: Option<String>,
 ) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let mut args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -361,6 +371,10 @@ fn run_submit_work(
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
 fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -384,6 +398,10 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
 /// both `agreement.payer` and `agreement.payee` before calling
 /// `caller.require_auth()`, so either party can autonomously open a dispute.
 fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -410,6 +428,10 @@ fn run_resolve_dispute(
     milestone_id: u32,
     refund_to_payer: bool,
 ) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -431,6 +453,10 @@ fn run_resolve_dispute(
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
 fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -453,6 +479,10 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
 /// The stellar CLI calls the contract's `get_agreement` view function and
 /// returns the full Agreement struct as JSON, which is printed to stdout.
 fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -472,7 +502,11 @@ fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
 ///
 /// Queries a single milestone by index without fetching the full Agreement,
 /// reducing deserialization cost for agreements with many milestones.
-fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -481,7 +515,7 @@ fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32
     ];
 
     let out = RpcClient::invoke(config, "get_milestone", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 // ---------------------------------------------------------------------------
