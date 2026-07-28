@@ -8,7 +8,7 @@ function Navbar() {
   const navigate = useNavigate();
 
   return (
-    <nav className="bg-[#0A0E17] border-b border-navy-700 px-6 py-4 flex items-center justify-between">
+    <nav className="bg-navy-900 border-b border-navy-700 px-6 py-4 flex items-center justify-between">
       <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
         <span className="text-cyan-400 text-xl font-bold tracking-tight">Trellis</span>
         <span className="hidden sm:inline text-gray-500 text-sm">Trustless Milestone Escrow</span>
