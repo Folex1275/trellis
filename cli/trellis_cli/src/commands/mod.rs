@@ -124,13 +124,24 @@ pub enum Commands {
         #[arg(long)]
         agreement_id: String,
     },
+
+    /// Query the current status of a single milestone (cheaper than fetching the full agreement).
+    MilestoneStatus {
+        /// Agreement ID (hex-encoded, 64 chars).
+        #[arg(long)]
+        agreement_id: String,
+
+        /// Zero-based index of the milestone to query.
+        #[arg(long)]
+        milestone_id: u32,
+    },
 }
 
 // ---------------------------------------------------------------------------
 // Dispatch — route each command to its handler
 // ---------------------------------------------------------------------------
 
-pub fn dispatch(cmd: Commands, config: &Config) {
+pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
     match cmd {
         Commands::Init {
             agreement_id,
@@ -183,7 +194,61 @@ pub fn dispatch(cmd: Commands, config: &Config) {
         } => run_cancel_milestone(config, agreement_id, milestone_id),
 
         Commands::Status { agreement_id } => run_status(config, agreement_id),
+
+        Commands::MilestoneStatus {
+            agreement_id,
+            milestone_id,
+        } => run_milestone_status(config, agreement_id, milestone_id),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Input validation
+// ---------------------------------------------------------------------------
+
+/// Validate an agreement ID: must be exactly 64 lowercase or uppercase hex chars.
+///
+/// Rejects any value that could be used to inject additional CLI flags or
+/// smuggle shell metacharacters through the argument list.
+fn validate_agreement_id(id: &str) -> Result<(), String> {
+    if id.len() != 64 {
+        return Err(format!(
+            "agreement_id must be exactly 64 hex characters, got {}",
+            id.len()
+        ));
+    }
+    if !id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(
+            "agreement_id must contain only hexadecimal characters (0-9, a-f, A-F)".to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Validate a proof URI: printable, non-empty, within a reasonable length cap.
+///
+/// Control characters (including newlines) are rejected so they cannot be
+/// used to confuse argument parsing downstream.
+fn validate_proof_uri(uri: &str) -> Result<(), String> {
+    if uri.is_empty() {
+        return Err("proof_uri must not be empty".to_string());
+    }
+    if uri.len() > 2048 {
+        return Err(format!(
+            "proof_uri must not exceed 2048 characters, got {}",
+            uri.len()
+        ));
+    }
+    if uri.chars().any(|c| c.is_control()) {
+        return Err("proof_uri must not contain control characters".to_string());
+    }
+    Ok(())
+}
+
+/// Print a validation error and exit with code 1.
+fn fail_validation(msg: &str) -> ! {
+    eprintln!("error: {msg}");
+    std::process::exit(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,11 +273,14 @@ fn run_init(
     resolver: String,
     milestones_csv: String,
 ) {
-    let milestones_json = build_milestones_json(&milestones_csv);
+    let milestones_json = build_milestones_json(&milestones_csv).unwrap_or_else(|e| {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    });
 
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--payer".to_string(),
         payer,
         "--payee".to_string(),
@@ -226,7 +294,7 @@ fn run_init(
     ];
 
     let out = RpcClient::invoke(config, "init", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- lock_funds …`
@@ -236,16 +304,16 @@ fn run_init(
 /// stellar contract invoke … -- lock_funds
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
     ];
 
     let out = RpcClient::invoke(config, "lock_funds", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- submit_work …`
@@ -265,21 +333,24 @@ fn run_submit_work(
     agreement_id: String,
     milestone_id: u32,
     proof_uri: Option<String>,
-) {
+) -> Result<(), String> {
     let mut args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
     ];
 
     if let Some(uri) = proof_uri.filter(|u| !u.is_empty()) {
+        if let Err(e) = validate_proof_uri(&uri) {
+            fail_validation(&e);
+        }
         args.push("--proof-uri".to_string());
-        args.push(format!("\"{}\"", uri));
+        args.push(uri);
     }
 
     let out = RpcClient::invoke(config, "submit_work", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- approve_and_release …`
@@ -289,16 +360,16 @@ fn run_submit_work(
 /// stellar contract invoke … -- approve_and_release
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
     ];
 
     let out = RpcClient::invoke(config, "approve_and_release", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- raise_dispute …`
@@ -312,10 +383,10 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
 /// `caller` is passed explicitly because the contract checks it against
 /// both `agreement.payer` and `agreement.payee` before calling
 /// `caller.require_auth()`, so either party can autonomously open a dispute.
-fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) {
+fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
         "--caller".to_string(),
@@ -323,7 +394,7 @@ fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, c
     ];
 
     let out = RpcClient::invoke(config, "raise_dispute", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- resolve_dispute …`
@@ -338,10 +409,10 @@ fn run_resolve_dispute(
     agreement_id: String,
     milestone_id: u32,
     refund_to_payer: bool,
-) {
+) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
         "--refund-to-payer".to_string(),
@@ -349,7 +420,7 @@ fn run_resolve_dispute(
     ];
 
     let out = RpcClient::invoke(config, "resolve_dispute", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- cancel_unfunded_milestone …`
@@ -359,16 +430,16 @@ fn run_resolve_dispute(
 /// stellar contract invoke … -- cancel_unfunded_milestone
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
         "--milestone-id".to_string(),
         milestone_id.to_string(),
     ];
 
     let out = RpcClient::invoke(config, "cancel_unfunded_milestone", &args);
-    print_output(&out);
+    print_output(&out)
 }
 
 /// `stellar contract invoke … -- get_agreement …`
@@ -381,13 +452,35 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
 ///
 /// The stellar CLI calls the contract's `get_agreement` view function and
 /// returns the full Agreement struct as JSON, which is printed to stdout.
-fn run_status(config: &Config, agreement_id: String) {
+fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
-        format!("\"{}\"", agreement_id),
+        agreement_id,
     ];
 
     let out = RpcClient::invoke(config, "get_agreement", &args);
+    print_output(&out)
+}
+
+/// `stellar contract invoke … -- get_milestone …`
+///
+/// Final call signature:
+/// ```
+/// stellar contract invoke … -- get_milestone
+///   --agreement-id <hex> --milestone-id <u32>
+/// ```
+///
+/// Queries a single milestone by index without fetching the full Agreement,
+/// reducing deserialization cost for agreements with many milestones.
+fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) {
+    let args = vec![
+        "--agreement-id".to_string(),
+        format!("\"{}\"", agreement_id),
+        "--milestone-id".to_string(),
+        milestone_id.to_string(),
+    ];
+
+    let out = RpcClient::invoke(config, "get_milestone", &args);
     print_output(&out);
 }
 
@@ -398,55 +491,227 @@ fn run_status(config: &Config, agreement_id: String) {
 /// Convert a comma-separated amount string like `"1000,2000"` into the JSON
 /// array format the `stellar` CLI accepts for a `Vec<Milestone>` argument.
 ///
+/// Amounts are parsed as `i128` to match the contract's `Milestone.amount` type.
+/// Values that are not valid integers, are zero, or are negative are rejected
+/// with a descriptive error — the entire command fails rather than silently
+/// producing a malformed milestone list.
+///
 /// Each milestone is given:
 /// - `id`        – its 0-based position in the list
-/// - `amount`    – the parsed amount
+/// - `amount`    – the parsed `i128` amount (quoted, per Soroban i128 JSON encoding)
 /// - `status`    – `{"Pending":null}` (XDR union tag for EscrowStatus::Pending)
 /// - `proof_uri` – `null` (XDR `Void`, i.e. `None` — no proof submitted yet)
 ///
 /// Example output for `"1000,2000"`:
 /// ```json
-/// [{"id":0,"amount":1000,"status":{"Pending":null},"proof_uri":null},
-///  {"id":1,"amount":2000,"status":{"Pending":null},"proof_uri":null}]
+/// [{"id":0,"amount":"1000","status":{"Pending":null},"proof_uri":null},
+///  {"id":1,"amount":"2000","status":{"Pending":null},"proof_uri":null}]
 /// ```
-fn build_milestones_json(csv: &str) -> String {
+fn build_milestones_json(csv: &str) -> Result<String, String> {
     let entries: Vec<String> = csv
         .split(',')
         .enumerate()
-        .filter_map(|(idx, part)| {
+        .map(|(idx, part)| -> Result<String, String> {
             let trimmed = part.trim();
-            match trimmed.parse::<u64>() {
-                Ok(amount) => Some(format!(
-                    r#"{{"id":{idx},"amount":"{amount}","status":{{"Pending":null}},"proof_uri":null}}"#,
-                )),
-                Err(_) => {
-                    eprintln!(
-                        "Warning: skipping invalid milestone amount {:?} at index {}",
-                        trimmed, idx
-                    );
-                    None
-                }
+            let amount: i128 = trimmed.parse().map_err(|_| {
+                format!(
+                    "invalid milestone amount {:?} at index {} — expected a positive integer",
+                    trimmed, idx
+                )
+            })?;
+            if amount <= 0 {
+                return Err(format!(
+                    "milestone amount at index {} must be a positive integer, got {amount}",
+                    idx
+                ));
             }
+            Ok(format!(
+                r#"{{"id":{idx},"amount":"{amount}","status":{{"Pending":null}},"proof_uri":null}}"#,
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
-    format!("[{}]", entries.join(","))
+    Ok(format!("[{}]", entries.join(",")))
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::build_milestones_json;
+
+    #[test]
+    fn test_build_milestones_json_happy_path() {
+        let json = build_milestones_json("1000,2000,500").unwrap();
+        assert_eq!(
+            json,
+            r#"[{"id":0,"amount":"1000","status":{"Pending":null},"proof_uri":null},{"id":1,"amount":"2000","status":{"Pending":null},"proof_uri":null},{"id":2,"amount":"500","status":{"Pending":null},"proof_uri":null}]"#
+        );
+    }
+
+    #[test]
+    fn test_build_milestones_json_max_i128() {
+        let max = i128::MAX.to_string();
+        let json = build_milestones_json(&max).unwrap();
+        assert!(
+            json.contains(&format!("\"amount\":\"{}\"", i128::MAX)),
+            "max i128 value should be preserved verbatim"
+        );
+    }
+
+    #[test]
+    fn test_build_milestones_json_zero_rejects() {
+        let result = build_milestones_json("0");
+        assert!(result.is_err(), "zero amount must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_negative_rejects() {
+        let result = build_milestones_json("-500");
+        assert!(result.is_err(), "negative amount must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_non_numeric_rejects() {
+        let result = build_milestones_json("abc");
+        assert!(result.is_err(), "non-numeric input must be rejected");
+    }
+
+    #[test]
+    fn test_build_milestones_json_whitespace_trimmed() {
+        let json = build_milestones_json(" 100 , 200 ").unwrap();
+        assert!(json.contains("\"amount\":\"100\""));
+        assert!(json.contains("\"amount\":\"200\""));
+    }
+
+    #[test]
+    fn test_build_milestones_json_single_milestone() {
+        let json = build_milestones_json("42").unwrap();
+        assert_eq!(
+            json,
+            r#"[{"id":0,"amount":"42","status":{"Pending":null},"proof_uri":null}]"#
+        );
+    }
 }
 
 /// Print the result of an RPC call.
 /// On failure, prints the full verbatim command so the user can reproduce it.
-fn print_output(out: &crate::rpc::InvokeOutput) {
+///
+/// Returns `Ok(())` on success or `Err(message)` on failure so that
+/// callers (i.e. `main`) can run any cleanup before exiting with a non-zero
+/// exit code.  This avoids calling `std::process::exit` inside a library
+/// function, which would skip destructors and flush buffers unsafely.
+fn print_output(out: &crate::rpc::InvokeOutput) -> Result<(), String> {
     if out.success {
         println!("{}", out.stdout.trim());
+        Ok(())
     } else {
-        eprintln!("── Transaction failed ──────────────────────────────────");
-        eprintln!("Command: {}", out.command_debug);
+        let mut msg = format!(
+            "── Transaction failed ──────────────────────────────────\nCommand: {}",
+            out.command_debug
+        );
         if !out.stdout.is_empty() {
-            eprintln!("stdout:\n{}", out.stdout.trim());
+            msg.push_str(&format!("\nstdout:\n{}", out.stdout.trim()));
         }
         if !out.stderr.is_empty() {
-            eprintln!("stderr:\n{}", out.stderr.trim());
+            msg.push_str(&format!("\nstderr:\n{}", out.stderr.trim()));
         }
-        std::process::exit(1);
+        Err(msg)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- validate_agreement_id ---
+
+    #[test]
+    fn agreement_id_valid_lowercase_hex() {
+        let id = "a".repeat(64);
+        assert!(validate_agreement_id(&id).is_ok());
+    }
+
+    #[test]
+    fn agreement_id_valid_uppercase_hex() {
+        let id = "F".repeat(64);
+        assert!(validate_agreement_id(&id).is_ok());
+    }
+
+    #[test]
+    fn agreement_id_valid_mixed_hex() {
+        let id = "0123456789abcdefABCDEF0123456789abcdefABCDEF0123456789abcdefABCD";
+        assert_eq!(id.len(), 64);
+        assert!(validate_agreement_id(id).is_ok());
+    }
+
+    #[test]
+    fn agreement_id_rejects_wrong_length() {
+        assert!(validate_agreement_id("abc").is_err());
+        assert!(validate_agreement_id(&"a".repeat(63)).is_err());
+        assert!(validate_agreement_id(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn agreement_id_rejects_non_hex_chars() {
+        // space injection attempt
+        let id = format!("{} --extra-flag x {}", "a".repeat(30), "b".repeat(30));
+        assert!(validate_agreement_id(&id).is_err());
+    }
+
+    #[test]
+    fn agreement_id_rejects_quotes_and_backslash() {
+        let id = format!("{}\"{}\\{}", "a".repeat(21), "b".repeat(21), "c".repeat(20));
+        assert!(validate_agreement_id(&id).is_err());
+    }
+
+    #[test]
+    fn agreement_id_rejects_null_byte() {
+        let mut id = "a".repeat(64);
+        // Replace one char with null byte representation
+        id = id.replacen('a', "\0", 1);
+        assert!(validate_agreement_id(&id).is_err());
+    }
+
+    // --- validate_proof_uri ---
+
+    #[test]
+    fn proof_uri_valid_ipfs() {
+        assert!(validate_proof_uri("ipfs://QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco").is_ok());
+    }
+
+    #[test]
+    fn proof_uri_valid_https() {
+        assert!(validate_proof_uri("https://github.com/org/repo/pull/42").is_ok());
+    }
+
+    #[test]
+    fn proof_uri_rejects_empty() {
+        assert!(validate_proof_uri("").is_err());
+    }
+
+    #[test]
+    fn proof_uri_rejects_control_characters() {
+        assert!(validate_proof_uri("https://example.com/\nX-Injected: bad").is_err());
+        assert!(validate_proof_uri("https://example.com/\x00null").is_err());
+        assert!(validate_proof_uri("https://example.com/\t tab").is_err());
+    }
+
+    #[test]
+    fn proof_uri_rejects_oversized() {
+        let uri = "a".repeat(2049);
+        assert!(validate_proof_uri(&uri).is_err());
+    }
+
+    #[test]
+    fn proof_uri_accepts_max_length() {
+        let uri = "a".repeat(2048);
+        assert!(validate_proof_uri(&uri).is_ok());
     }
 }

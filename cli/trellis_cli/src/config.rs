@@ -42,4 +42,71 @@ impl Config {
                 .unwrap_or_else(|_| "UNSET_SOURCE_KEY".to_string()),
         }
     }
+
+    /// Validate that all required env vars are set to real values.
+    ///
+    /// Returns `Err` listing the names of every missing variable. Call this
+    /// at startup before dispatching any command so users see a clear error
+    /// instead of a cryptic RPC failure deep in the pipeline.
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut missing = Vec::new();
+
+        if self.contract_id == "UNSET_CONTRACT_ID" {
+            missing.push("TRELLIS_CONTRACT_ID".to_string());
+        }
+        if self.source_key == "UNSET_SOURCE_KEY" {
+            missing.push("TRELLIS_SOURCE_KEY".to_string());
+        }
+
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(missing)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with(contract_id: &str, source_key: &str) -> Config {
+        Config {
+            rpc_url: "https://soroban-testnet.stellar.org".to_string(),
+            network_passphrase: "Test SDF Network ; September 2015".to_string(),
+            contract_id: contract_id.to_string(),
+            source_key: source_key.to_string(),
+        }
+    }
+
+    #[test]
+    fn validate_passes_when_all_vars_set() {
+        let cfg = config_with("CAABC123", "SABC123");
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_fails_on_unset_contract_id() {
+        let cfg = config_with("UNSET_CONTRACT_ID", "SABC123");
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains(&"TRELLIS_CONTRACT_ID".to_string()));
+        assert!(!err.contains(&"TRELLIS_SOURCE_KEY".to_string()));
+    }
+
+    #[test]
+    fn validate_fails_on_unset_source_key() {
+        let cfg = config_with("CAABC123", "UNSET_SOURCE_KEY");
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains(&"TRELLIS_SOURCE_KEY".to_string()));
+        assert!(!err.contains(&"TRELLIS_CONTRACT_ID".to_string()));
+    }
+
+    #[test]
+    fn validate_reports_all_missing_vars() {
+        let cfg = config_with("UNSET_CONTRACT_ID", "UNSET_SOURCE_KEY");
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.len(), 2);
+        assert!(err.contains(&"TRELLIS_CONTRACT_ID".to_string()));
+        assert!(err.contains(&"TRELLIS_SOURCE_KEY".to_string()));
+    }
 }

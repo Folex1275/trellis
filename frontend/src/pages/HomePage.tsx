@@ -1,33 +1,95 @@
-import { useNavigate as useNavigateRouter } from '../lib/router';
-import { StatsBar } from '../components/StatsBar';
+import { useNavigate as useNavigateRouter } from '../lib/router'
+import { useTypingAnimation } from '../hooks/useTypingAnimation'
+import { HowItWorks } from '../components/HowItWorks'
+import useToast from '../hooks/useToast'
 
+/**
+ * HomePage — landing page for Trellis.
+ *
+ * Changes:
+ * - Uses useTypingAnimation for the hero heading (#94, #97).
+ * - CTA buttons have explicit onClick handlers, cursor-pointer, and active
+ *   states so they never appear decorative (#96).
+ * - HowItWorks section is extracted to its own component with separate SVG
+ *   icon files (#95).
+ */
 export default function HomePage() {
-  const navigate = useNavigateRouter();
+  const navigate = useNavigateRouter()
+  const toast = useToast()
+
+  // Animate the hero heading. The hook handles race conditions and batches
+  // character appends to keep re-renders low.
+  const heading = useTypingAnimation('Trustless Escrow for Remote Work', 40, 3)
+
+  function handleCreateAgreement() {
+    navigate('/create')
+  }
+
+  function handleCheckStatus() {
+    navigate('/status')
+  }
+
+  // Called when a feature-card action is not yet fully wired to a page.
+  function handleComingSoon(label: string) {
+    toast.info({ title: `${label} — coming soon` })
+  }
 
   return (
     <div className="relative min-h-screen text-gray-200">
       <div className="relative z-10">
         <main className="flex flex-col items-center justify-center px-6 pt-24 pb-32 text-center">
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white max-w-2xl leading-tight">
-            Trustless Escrow for Remote Work
+          {/*
+           * aria-label provides the full text immediately to screen readers so
+           * they do not read out a partially-typed heading.
+           */}
+          <h1
+            aria-label="Trustless Escrow for Remote Work"
+            className="text-4xl sm:text-5xl font-bold tracking-tight text-white max-w-2xl leading-tight min-h-[3rem]"
+          >
+            {heading}
+            {/* Blinking cursor while typing is in progress */}
+            {heading.length < 'Trustless Escrow for Remote Work'.length && (
+              <span className="animate-pulse" aria-hidden="true">|</span>
+            )}
           </h1>
+
           <p className="mt-4 text-gray-400 text-lg sm:text-xl max-w-xl">
             Built on Stellar's Soroban smart contract platform
           </p>
 
-          {/* Live on-chain stats — no fabricated metrics */}
-          <StatsBar />
-
+          {/* ── CTA Buttons (#96) ───────────────────────────────────────────
+            * Both buttons have:
+            *   • explicit onClick handlers
+            *   • cursor-pointer so the pointer is never absent
+            *   • active: scale-95 for tactile press feedback
+            *   • focus-visible ring for keyboard users
+            */}
           <div className="mt-10 flex flex-col sm:flex-row gap-4">
             <button
-              onClick={() => navigate('/create')}
-              className="bg-cyan-400 text-navy-900 font-semibold px-8 py-3 rounded-lg text-base hover:bg-cyan-300 transition-colors"
+              type="button"
+              onClick={handleCreateAgreement}
+              className="
+                cursor-pointer
+                bg-cyan-400 text-navy-900 font-semibold px-8 py-3 rounded-lg text-base
+                hover:bg-cyan-300
+                active:scale-95
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900
+                transition-all
+              "
             >
               Create Agreement
             </button>
             <button
-              onClick={() => navigate('/status')}
-              className="border border-cyan-400 text-cyan-400 font-semibold px-8 py-3 rounded-lg text-base hover:bg-cyan-400/10 transition-colors"
+              type="button"
+              onClick={handleCheckStatus}
+              className="
+                cursor-pointer
+                border border-cyan-400 text-cyan-400 font-semibold px-8 py-3 rounded-lg text-base
+                hover:bg-cyan-400/10
+                active:scale-95
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900
+                transition-all
+              "
             >
               Check Status
             </button>
@@ -35,89 +97,71 @@ export default function HomePage() {
 
           {/* Features Section */}
           <div className="mt-20 max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-navy-800/50 border border-navy-700 rounded-lg p-6">
+            <button
+              type="button"
+              onClick={() => handleCheckStatus()}
+              className="
+                cursor-pointer text-left
+                bg-navy-800/50 border border-navy-700 rounded-lg p-6
+                hover:border-cyan-400/40 hover:bg-navy-800/70
+                active:scale-95
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900
+                transition-all
+              "
+              aria-label="Read any agreement — navigate to status page"
+            >
               <h3 className="text-cyan-400 font-bold text-lg mb-2">Read Any Agreement</h3>
               <p className="text-gray-400 text-sm">
-                Paste an Agreement ID to view its current on-chain state — no wallet connection needed.
+                Paste an Agreement ID to view its current on-chain state — no wallet
+                connection needed.
               </p>
-            </div>
-            <div className="bg-navy-800/50 border border-navy-700 rounded-lg p-6">
-              <h3 className="text-cyan-400 font-bold text-lg mb-2">Create & Fund Milestones</h3>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleCreateAgreement()}
+              className="
+                cursor-pointer text-left
+                bg-navy-800/50 border border-navy-700 rounded-lg p-6
+                hover:border-cyan-400/40 hover:bg-navy-800/70
+                active:scale-95
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900
+                transition-all
+              "
+              aria-label="Create and fund milestones — navigate to create page"
+            >
+              <h3 className="text-cyan-400 font-bold text-lg mb-2">Create &amp; Fund Milestones</h3>
               <p className="text-gray-400 text-sm">
-                Create escrow agreements with multiple milestones and fund them directly from the browser.
+                Create escrow agreements with multiple milestones and fund them directly
+                from the browser.
               </p>
-            </div>
-            <div className="bg-navy-800/50 border border-navy-700 rounded-lg p-6">
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleComingSoon('Audit Trail')}
+              className="
+                cursor-pointer text-left
+                bg-navy-800/50 border border-navy-700 rounded-lg p-6
+                hover:border-cyan-400/40 hover:bg-navy-800/70
+                active:scale-95
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900
+                transition-all
+              "
+              aria-label="Complete audit trail — coming soon"
+            >
               <h3 className="text-cyan-400 font-bold text-lg mb-2">Complete Audit Trail</h3>
               <p className="text-gray-400 text-sm">
-                Every action emits an on-chain event — full history and transparency for all parties.
+                Every action emits an on-chain event — full history and transparency for
+                all parties.
               </p>
-            </div>
+            </button>
           </div>
 
-          {/* How It Works */}
-          <div className="mt-20 max-w-2xl">
-            <h2 className="text-2xl font-bold text-white mb-8">How It Works</h2>
-            <div className="space-y-6 text-left">
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-cyan-400 rounded-full flex items-center justify-center text-navy-900 font-bold">
-                  1
-                </div>
-                <div>
-                  <h3 className="text-white font-bold mb-1">Create Agreement</h3>
-                  <p className="text-gray-400 text-sm">
-                    Define milestones, amounts, and the people involved. The payer authorizes and pays fees.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-cyan-400 rounded-full flex items-center justify-center text-navy-900 font-bold">
-                  2
-                </div>
-                <div>
-                  <h3 className="text-white font-bold mb-1">Lock Funds</h3>
-                  <p className="text-gray-400 text-sm">
-                    The payer deposits the agreed amount for each milestone into the contract.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-cyan-400 rounded-full flex items-center justify-center text-navy-900 font-bold">
-                  3
-                </div>
-                <div>
-                  <h3 className="text-white font-bold mb-1">Submit Work</h3>
-                  <p className="text-gray-400 text-sm">
-                    The payee completes the work and submits proof (GitHub link, file, etc.).
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-cyan-400 rounded-full flex items-center justify-center text-navy-900 font-bold">
-                  4
-                </div>
-                <div>
-                  <h3 className="text-white font-bold mb-1">Approve & Release</h3>
-                  <p className="text-gray-400 text-sm">
-                    The payer reviews and approves. Funds are released to the payee on-chain.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 bg-cyan-400 rounded-full flex items-center justify-center text-navy-900 font-bold">
-                  ⚖️
-                </div>
-                <div>
-                  <h3 className="text-white font-bold mb-1">Dispute (if needed)</h3>
-                  <p className="text-gray-400 text-sm">
-                    Either party can raise a dispute. A trusted resolver arbitrates and releases funds fairly.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* How It Works — extracted component (#95) */}
+          <HowItWorks />
         </main>
       </div>
     </div>
-  );
+  )
 }
