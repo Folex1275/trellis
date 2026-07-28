@@ -1,3 +1,41 @@
+/// Network preset selectable via the CLI's `--network` flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[value(rename_all = "lower")]
+pub enum Network {
+    Testnet,
+    Mainnet,
+    Futurenet,
+    Custom,
+}
+
+/// Known RPC URL and network passphrase for a non-custom `Network`.
+pub struct NetworkPreset {
+    pub rpc_url: &'static str,
+    pub network_passphrase: &'static str,
+}
+
+impl Network {
+    /// Returns the known RPC URL / passphrase pair for this network, or
+    /// `None` for `Custom`, which has no built-in preset.
+    pub fn preset(self) -> Option<NetworkPreset> {
+        match self {
+            Network::Testnet => Some(NetworkPreset {
+                rpc_url: "https://soroban-testnet.stellar.org",
+                network_passphrase: "Test SDF Network ; September 2015",
+            }),
+            Network::Mainnet => Some(NetworkPreset {
+                rpc_url: "https://mainnet.sorobanrpc.com",
+                network_passphrase: "Public Global Stellar Network ; September 2015",
+            }),
+            Network::Futurenet => Some(NetworkPreset {
+                rpc_url: "https://rpc-futurenet.stellar.org",
+                network_passphrase: "Test SDF Future Network ; October 2022",
+            }),
+            Network::Custom => None,
+        }
+    }
+}
+
 /// Trellis CLI configuration.
 ///
 /// Values are loaded from environment variables with Soroban Testnet defaults
@@ -25,22 +63,47 @@ pub struct Config {
 }
 
 impl Config {
-    /// Load configuration from environment variables, falling back to
-    /// Soroban Testnet defaults where applicable.
-    pub fn from_env() -> Self {
-        Config {
-            rpc_url: std::env::var("STELLAR_RPC_URL")
-                .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string()),
+    /// Resolve configuration from a `--network` preset plus optional CLI
+    /// overrides for RPC URL / passphrase.
+    ///
+    /// Priority (highest to lowest): CLI flags > env vars > network preset.
+    /// `Network::Custom` has no preset, so it requires the RPC URL and
+    /// passphrase to come from a CLI flag or env var — returns `Err` naming
+    /// whichever is still missing.
+    pub fn resolve(
+        network: Network,
+        cli_rpc_url: Option<String>,
+        cli_network_passphrase: Option<String>,
+    ) -> Result<Self, String> {
+        let preset = network.preset();
 
-            network_passphrase: std::env::var("STELLAR_NETWORK_PASSPHRASE")
-                .unwrap_or_else(|_| "Test SDF Network ; September 2015".to_string()),
+        let rpc_url = cli_rpc_url
+            .or_else(|| std::env::var("STELLAR_RPC_URL").ok())
+            .or_else(|| preset.as_ref().map(|p| p.rpc_url.to_string()))
+            .ok_or_else(|| {
+                "Error: --network=custom requires --rpc-url (or STELLAR_RPC_URL)".to_string()
+            })?;
 
-            contract_id: std::env::var("TRELLIS_CONTRACT_ID")
-                .unwrap_or_else(|_| "UNSET_CONTRACT_ID".to_string()),
+        let network_passphrase = cli_network_passphrase
+            .or_else(|| std::env::var("STELLAR_NETWORK_PASSPHRASE").ok())
+            .or_else(|| preset.as_ref().map(|p| p.network_passphrase.to_string()))
+            .ok_or_else(|| {
+                "Error: --network=custom requires --network-passphrase (or STELLAR_NETWORK_PASSPHRASE)"
+                    .to_string()
+            })?;
 
-            source_key: std::env::var("TRELLIS_SOURCE_KEY")
-                .unwrap_or_else(|_| "UNSET_SOURCE_KEY".to_string()),
-        }
+        let contract_id = std::env::var("TRELLIS_CONTRACT_ID")
+            .unwrap_or_else(|_| "UNSET_CONTRACT_ID".to_string());
+
+        let source_key = std::env::var("TRELLIS_SOURCE_KEY")
+            .unwrap_or_else(|_| "UNSET_SOURCE_KEY".to_string());
+
+        Ok(Config {
+            rpc_url,
+            network_passphrase,
+            contract_id,
+            source_key,
+        })
     }
 
     /// Validate that all required env vars are set to real values.

@@ -35,6 +35,10 @@ pub enum Commands {
         /// Example: --milestones "1000,2000,500"
         #[arg(long)]
         milestones: String,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Lock funds for a specific milestone into the escrow contract.
@@ -46,6 +50,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to fund.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Submit proof of work for a funded milestone.
@@ -62,6 +70,10 @@ pub enum Commands {
         /// Omit the flag to submit without a proof link.
         #[arg(long)]
         proof_uri: Option<String>,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Approve submitted work and release funds to the payee.
@@ -73,6 +85,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to approve.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Raise a dispute on a funded or work-submitted milestone.
@@ -89,6 +105,10 @@ pub enum Commands {
         /// The contract validates the caller is one of these two roles.
         #[arg(long)]
         caller: String,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Resolve a disputed milestone as the designated dispute resolver.
@@ -105,6 +125,10 @@ pub enum Commands {
         /// Pass false to release funds to the payee (payee wins).
         #[arg(long, default_value = "false")]
         refund_to_payer: bool,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Cancel a milestone that was never funded (status = Pending).
@@ -116,6 +140,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to cancel.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Query the current state of an agreement.
@@ -135,6 +163,18 @@ pub enum Commands {
         #[arg(long)]
         milestone_id: u32,
     },
+
+    /// List all milestones for an agreement in a formatted table.
+    ListMilestones {
+        /// Agreement ID (hex-encoded, 64 chars).
+        #[arg(long)]
+        agreement_id: String,
+
+        /// Only show milestones with this status (e.g. Pending, Funded,
+        /// WorkSubmitted, Completed, Disputed, Refunded). Case-insensitive.
+        #[arg(long)]
+        filter_by_status: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +190,7 @@ pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
             token,
             resolver,
             milestones,
+            yes,
         } => run_init(
             config,
             agreement_id,
@@ -158,40 +199,47 @@ pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
             token,
             resolver,
             milestones,
+            yes,
         ),
 
         Commands::LockFunds {
             agreement_id,
             milestone_id,
-        } => run_lock_funds(config, agreement_id, milestone_id),
+            yes,
+        } => run_lock_funds(config, agreement_id, milestone_id, yes),
 
         Commands::SubmitWork {
             agreement_id,
             milestone_id,
             proof_uri,
-        } => run_submit_work(config, agreement_id, milestone_id, proof_uri),
+            yes,
+        } => run_submit_work(config, agreement_id, milestone_id, proof_uri, yes),
 
         Commands::ApproveRelease {
             agreement_id,
             milestone_id,
-        } => run_approve_release(config, agreement_id, milestone_id),
+            yes,
+        } => run_approve_release(config, agreement_id, milestone_id, yes),
 
         Commands::RaiseDispute {
             agreement_id,
             milestone_id,
             caller,
-        } => run_raise_dispute(config, agreement_id, milestone_id, caller),
+            yes,
+        } => run_raise_dispute(config, agreement_id, milestone_id, caller, yes),
 
         Commands::ResolveDispute {
             agreement_id,
             milestone_id,
             refund_to_payer,
-        } => run_resolve_dispute(config, agreement_id, milestone_id, refund_to_payer),
+            yes,
+        } => run_resolve_dispute(config, agreement_id, milestone_id, refund_to_payer, yes),
 
         Commands::CancelMilestone {
             agreement_id,
             milestone_id,
-        } => run_cancel_milestone(config, agreement_id, milestone_id),
+            yes,
+        } => run_cancel_milestone(config, agreement_id, milestone_id, yes),
 
         Commands::Status { agreement_id } => run_status(config, agreement_id),
 
@@ -199,6 +247,44 @@ pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
             agreement_id,
             milestone_id,
         } => run_milestone_status(config, agreement_id, milestone_id),
+
+        Commands::ListMilestones {
+            agreement_id,
+            filter_by_status,
+        } => run_list_milestones(config, agreement_id, filter_by_status),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Interactive confirmation (#78)
+// ---------------------------------------------------------------------------
+
+/// Print a summary of a state-mutating operation and block on a y/N prompt,
+/// unless `skip` (the `-y`/`--yes` flag) is set.
+///
+/// Returns `Err` (without executing anything) if the user does not answer
+/// `y`/`yes`, so a fat-fingered command aborts instead of running.
+fn confirm_action(summary: &str, skip: bool) -> Result<(), String> {
+    if skip {
+        return Ok(());
+    }
+
+    use std::io::Write;
+
+    println!("{summary}");
+    print!("Continue? [y/N] ");
+    std::io::stdout()
+        .flush()
+        .map_err(|e| format!("Failed to write prompt: {e}"))?;
+
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| format!("Failed to read confirmation: {e}"))?;
+
+    match input.trim().to_lowercase().as_str() {
+        "y" | "yes" => Ok(()),
+        _ => Err("Aborted: operation not confirmed.".to_string()),
     }
 }
 
@@ -272,11 +358,20 @@ fn run_init(
     token: String,
     resolver: String,
     milestones_csv: String,
-) {
+    yes: bool,
+) -> Result<(), String> {
     let milestones_json = build_milestones_json(&milestones_csv).unwrap_or_else(|e| {
         eprintln!("Error: {e}");
         std::process::exit(1);
     });
+
+    confirm_action(
+        &format!(
+            "This will create agreement {agreement_id} (payer={payer}, payee={payee}, \
+             token={token}, resolver={resolver}, milestones={milestones_csv})."
+        ),
+        yes,
+    )?;
 
     let args = vec![
         "--agreement-id".to_string(),
@@ -304,7 +399,17 @@ fn run_init(
 /// stellar contract invoke … -- lock_funds
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+fn run_lock_funds(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    yes: bool,
+) -> Result<(), String> {
+    confirm_action(
+        &format!("This will lock funds for milestone {milestone_id} of agreement {agreement_id}."),
+        yes,
+    )?;
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -333,7 +438,13 @@ fn run_submit_work(
     agreement_id: String,
     milestone_id: u32,
     proof_uri: Option<String>,
+    yes: bool,
 ) -> Result<(), String> {
+    confirm_action(
+        &format!("This will submit work for milestone {milestone_id} of agreement {agreement_id}."),
+        yes,
+    )?;
+
     let mut args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -360,7 +471,19 @@ fn run_submit_work(
 /// stellar contract invoke … -- approve_and_release
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+fn run_approve_release(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    yes: bool,
+) -> Result<(), String> {
+    confirm_action(
+        &format!(
+            "This will approve milestone {milestone_id} of agreement {agreement_id} and release funds to the payee."
+        ),
+        yes,
+    )?;
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -383,7 +506,20 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
 /// `caller` is passed explicitly because the contract checks it against
 /// both `agreement.payer` and `agreement.payee` before calling
 /// `caller.require_auth()`, so either party can autonomously open a dispute.
-fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) -> Result<(), String> {
+fn run_raise_dispute(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    caller: String,
+    yes: bool,
+) -> Result<(), String> {
+    confirm_action(
+        &format!(
+            "This will raise a dispute on milestone {milestone_id} of agreement {agreement_id} as {caller}."
+        ),
+        yes,
+    )?;
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -409,7 +545,20 @@ fn run_resolve_dispute(
     agreement_id: String,
     milestone_id: u32,
     refund_to_payer: bool,
+    yes: bool,
 ) -> Result<(), String> {
+    let outcome = if refund_to_payer {
+        "refund locked funds to the payer"
+    } else {
+        "release funds to the payee"
+    };
+    confirm_action(
+        &format!(
+            "This will resolve the dispute on milestone {milestone_id} of agreement {agreement_id} and {outcome}."
+        ),
+        yes,
+    )?;
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -430,7 +579,17 @@ fn run_resolve_dispute(
 /// stellar contract invoke … -- cancel_unfunded_milestone
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+fn run_cancel_milestone(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    yes: bool,
+) -> Result<(), String> {
+    confirm_action(
+        &format!("This will cancel unfunded milestone {milestone_id} of agreement {agreement_id}."),
+        yes,
+    )?;
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -472,7 +631,7 @@ fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
 ///
 /// Queries a single milestone by index without fetching the full Agreement,
 /// reducing deserialization cost for agreements with many milestones.
-fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -481,7 +640,137 @@ fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32
     ];
 
     let out = RpcClient::invoke(config, "get_milestone", &args);
-    print_output(&out);
+    print_output(&out)
+}
+
+/// `stellar contract invoke … -- get_agreement …`, reformatted as a table.
+///
+/// Fetches the full agreement (there is no dedicated milestones-only view
+/// function on the contract) and renders its `milestones` array as an
+/// aligned table instead of making the caller parse raw JSON.
+fn run_list_milestones(
+    config: &Config,
+    agreement_id: String,
+    filter_by_status: Option<String>,
+) -> Result<(), String> {
+    if let Err(e) = validate_agreement_id(&agreement_id) {
+        fail_validation(&e);
+    }
+
+    let args = vec!["--agreement-id".to_string(), agreement_id];
+    let out = RpcClient::invoke(config, "get_agreement", &args);
+
+    if !out.success {
+        return print_output(&out);
+    }
+
+    let trimmed = out.stdout.trim();
+    let agreement: serde_json::Value = serde_json::from_str(trimmed)
+        .map_err(|e| format!("Failed to parse agreement JSON: {e}\nRaw output:\n{trimmed}"))?;
+
+    let milestones = agreement
+        .get("milestones")
+        .and_then(|m| m.as_array())
+        .ok_or_else(|| format!("Agreement JSON has no \"milestones\" array:\n{trimmed}"))?;
+
+    print_milestones_table(milestones, filter_by_status.as_deref())
+}
+
+/// Extract the variant name from a Soroban enum's JSON encoding, e.g.
+/// `{"Pending":null}` → `"Pending"`. Falls back to a plain string value or
+/// `"Unknown"` if the shape is unrecognized.
+fn milestone_status_label(status: Option<&serde_json::Value>) -> String {
+    match status {
+        Some(serde_json::Value::Object(map)) => map
+            .keys()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| "Unknown".to_string()),
+        Some(serde_json::Value::String(s)) => s.clone(),
+        _ => "Unknown".to_string(),
+    }
+}
+
+/// Render a milestone list as an aligned, whitespace-padded table.
+///
+/// `filter_by_status` (case-insensitive) restricts the rows shown to a
+/// single `EscrowStatus` variant name (e.g. "Pending", "Funded").
+fn print_milestones_table(
+    milestones: &[serde_json::Value],
+    filter_by_status: Option<&str>,
+) -> Result<(), String> {
+    struct Row {
+        id: String,
+        status: String,
+        amount: String,
+        proof_uri: String,
+    }
+
+    let mut rows = Vec::new();
+    for m in milestones {
+        let id = m
+            .get("id")
+            .and_then(|v| v.as_u64())
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        let status = milestone_status_label(m.get("status"));
+        let amount = m
+            .get("amount")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "?".to_string());
+        let proof_uri = m
+            .get("proof_uri")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "—".to_string());
+
+        if let Some(filter) = filter_by_status {
+            if !status.eq_ignore_ascii_case(filter) {
+                continue;
+            }
+        }
+
+        rows.push(Row {
+            id,
+            status,
+            amount,
+            proof_uri,
+        });
+    }
+
+    if rows.is_empty() {
+        match filter_by_status {
+            Some(f) => println!("No milestones with status \"{f}\"."),
+            None => println!("No milestones found."),
+        }
+        return Ok(());
+    }
+
+    let mut w_id = "#".len();
+    let mut w_status = "Status".len();
+    let mut w_amount = "Amount".len();
+    let mut w_proof = "Proof URI".len();
+    for r in &rows {
+        w_id = w_id.max(r.id.len());
+        w_status = w_status.max(r.status.len());
+        w_amount = w_amount.max(r.amount.len());
+        w_proof = w_proof.max(r.proof_uri.len());
+    }
+
+    println!("{:<w_id$}  {:<w_status$}  {:<w_amount$}  {:<w_proof$}", "#", "Status", "Amount", "Proof URI");
+    println!(
+        "{:-<w_id$}  {:-<w_status$}  {:-<w_amount$}  {:-<w_proof$}",
+        "", "", "", ""
+    );
+    for r in &rows {
+        println!(
+            "{:<w_id$}  {:<w_status$}  {:<w_amount$}  {:<w_proof$}",
+            r.id, r.status, r.amount, r.proof_uri
+        );
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
