@@ -5,6 +5,7 @@ import { sorobanServer } from '../lib/soroban';
 import { useWallet } from '../lib/useWallet';
 import { CONTRACT_ID } from '../lib/config';
 import MilestoneRow from '../components/MilestoneRow';
+import StatsBar from '../components/StatsBar';
 
 export default function StatusPage() {
   const route = useRoute();
@@ -16,6 +17,7 @@ export default function StatusPage() {
   const [events, setEvents] = useState<SorobanEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const handleQuery = async (id: string) => {
     if (!id.trim()) {
@@ -38,6 +40,7 @@ export default function StatusPage() {
       // Query events
       const events = await queryEvents();
       setEvents(events);
+      setLastUpdated(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to query agreement');
       setAgreement(null);
@@ -88,6 +91,13 @@ export default function StatusPage() {
 
         {agreement && (
           <>
+            {/* Timestamp of last on-chain data refresh — locale-independent (issue #101). */}
+            {lastUpdated && (
+              <div className="mb-4 flex justify-end">
+                <StatsBar lastUpdated={lastUpdated} />
+              </div>
+            )}
+
             {/* Agreement Details */}
             <div className="bg-navy-800 border border-navy-700 rounded-lg p-6 mb-8">
               <h2 className="text-xl font-semibold text-cyan-400 mb-6">Agreement Details</h2>
