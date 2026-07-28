@@ -7,6 +7,8 @@ import { NetworkBackground } from './NetworkBackground'
  * jsdom ships no canvas backend, so the component gets a recording stub. Only
  * the calls the draw loop actually makes are implemented — anything missing
  * would surface as a TypeError inside the frame rather than a silent no-op.
+ *
+ * setTransform is required because the DPR-aware resize path calls it.
  */
 function createContextStub() {
   return {
@@ -20,6 +22,7 @@ function createContextStub() {
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     stroke: vi.fn(),
+    setTransform: vi.fn(),
     createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
   }
 }
@@ -33,10 +36,7 @@ beforeEach(() => {
   )
   // Swallow the recursive schedule so the loop runs exactly one frame per
   // render instead of spinning for the lifetime of the test run.
-  vi.stubGlobal(
-    'requestAnimationFrame',
-    vi.fn(() => 1),
-  )
+  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
   vi.stubGlobal('cancelAnimationFrame', vi.fn())
 })
 
@@ -54,12 +54,13 @@ describe('<NetworkBackground />', () => {
     expect(canvas).toHaveClass('absolute', 'inset-0', 'z-0')
   })
 
-  it('sizes the canvas to the viewport', () => {
+  it('sizes the canvas to the viewport (DPR=1 in jsdom)', () => {
+    // jsdom defaults devicePixelRatio to 1, so physical px === CSS px
     const { container } = render(<NetworkBackground />)
 
     const canvas = container.querySelector('canvas')!
-    expect(canvas.width).toBe(window.innerWidth)
-    expect(canvas.height).toBe(window.innerHeight)
+    expect(canvas.width).toBe(window.innerWidth * (window.devicePixelRatio || 1))
+    expect(canvas.height).toBe(window.innerHeight * (window.devicePixelRatio || 1))
   })
 
   it('paints a frame and schedules the next one', () => {
@@ -88,5 +89,22 @@ describe('<NetworkBackground />', () => {
 
     expect(container.querySelector('canvas')).toBeInTheDocument()
     expect(ctx.fillRect).not.toHaveBeenCalled()
+  })
+
+  // ── Performance fixes (#90) ─────────────────────────────────────────────
+
+  it('calls setTransform for DPR-aware scaling on resize', () => {
+    render(<NetworkBackground />)
+    expect(ctx.setTransform).toHaveBeenCalled()
+  })
+
+  it('uses requestAnimationFrame for frame scheduling (not setInterval)', () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    render(<NetworkBackground />)
+    // setInterval must not be used for the draw loop — only rAF
+    const animIntervalCalls = setIntervalSpy.mock.calls.filter(
+      ([fn]) => typeof fn === 'function' && fn.toString().includes('drawFrame'),
+    )
+    expect(animIntervalCalls).toHaveLength(0)
   })
 })

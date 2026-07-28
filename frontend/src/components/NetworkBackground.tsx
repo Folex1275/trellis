@@ -46,7 +46,7 @@ export function NetworkBackground() {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas!.getContext('2d')
+    const ctx = canvas.getContext('2d')
     if (!ctx) return
 
     let animationId: number
@@ -68,9 +68,24 @@ export function NetworkBackground() {
     // be used here, so this is the one intentional exception to the token rule.
     const BG_COLOR = '#0A0E17'
 
+    /** Cell size for the spatial grid — slightly larger than MAX_DISTANCE so a
+     *  single ring of neighbour cells covers the full connection radius. */
+    const CELL_SIZE = MAX_DISTANCE + 1
+
+    /**
+     * Size the canvas in physical pixels while keeping CSS pixels stable.
+     * Using devicePixelRatio gives sharp rendering on HiDPI screens without
+     * increasing draw calls (we scale the context instead of the canvas).
+     */
     function resize() {
-      canvas!.width = window.innerWidth
-      canvas!.height = window.innerHeight
+      const dpr = window.devicePixelRatio || 1
+      const cssW = window.innerWidth
+      const cssH = window.innerHeight
+      canvas.width = cssW * dpr
+      canvas.height = cssH * dpr
+      canvas.style.width = `${cssW}px`
+      canvas.style.height = `${cssH}px`
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
 
     /**
@@ -113,10 +128,23 @@ export function NetworkBackground() {
       rebuildBuckets()
     }
 
-    function drawFrame() {
-      const mouse = mouseRef.current
+    function drawFrame(timestamp: number) {
+      // ── Frame throttling ──────────────────────────────────────────────────
+      // On low-end devices we skip frames so the CPU/GPU is not pinned at
+      // 60fps — requestAnimationFrame is still used so the browser can batch
+      // compositing correctly, we just skip the draw work most ticks.
+      const elapsed = timestamp - lastFrameTime
+      if (elapsed < FRAME_INTERVAL) {
+        animationId = requestAnimationFrame(drawFrame)
+        return
+      }
+      lastFrameTime = timestamp - (elapsed % FRAME_INTERVAL)
 
-      // Calculate mouse speed
+      const mouse = mouseRef.current
+      const cssW = window.innerWidth
+      const cssH = window.innerHeight
+
+      // ── Mouse speed ───────────────────────────────────────────────────────
       if (mouse.lastX !== null && mouse.lastY !== null && mouse.x !== null && mouse.y !== null) {
         const dx = mouse.x - mouse.lastX
         const dy = mouse.y - mouse.lastY
@@ -125,9 +153,9 @@ export function NetworkBackground() {
       mouse.lastX = mouse.x
       mouse.lastY = mouse.y
 
-      // Clear background
-      ctx!.fillStyle = BG_COLOR
-      ctx!.fillRect(0, 0, canvas!.width, canvas!.height)
+      // ── Clear ─────────────────────────────────────────────────────────────
+      ctx.fillStyle = BG_COLOR
+      ctx.fillRect(0, 0, cssW, cssH)
 
       // Update and draw particles — iterate over the flat particles array so
       // all particles are updated in a single pass with no allocations.
@@ -138,11 +166,9 @@ export function NetworkBackground() {
         p.baseX += p.vx
         p.baseY += p.vy
 
-        // Bounce base position off edges
-        if (p.baseX < 0 || p.baseX > canvas!.width) p.vx *= -1
-        if (p.baseY < 0 || p.baseY > canvas!.height) p.vy *= -1
+        if (p.baseX < 0 || p.baseX > cssW) p.vx *= -1
+        if (p.baseY < 0 || p.baseY > cssH) p.vy *= -1
 
-        // Mouse repulsion
         if (mouse.x !== null && mouse.y !== null) {
           const dx = p.x - mouse.x
           const dy = p.y - mouse.y
@@ -157,7 +183,6 @@ export function NetworkBackground() {
           }
         }
 
-        // Gently return toward base position
         p.x += (p.baseX - p.x) * RETURN_SPEED
         p.y += (p.baseY - p.y) * RETURN_SPEED
 
@@ -194,21 +219,20 @@ export function NetworkBackground() {
         }
       }
 
-      // Draw cursor web — glowing lines from cursor to nearby nodes
+      // ── Cursor web ────────────────────────────────────────────────────────
       if (mouse.x !== null && mouse.y !== null) {
-        // Draw glowing cursor dot
         const glowRadius = 6 + mouse.speed * 0.3
-        const gradient = ctx!.createRadialGradient(
+        const gradient = ctx.createRadialGradient(
           mouse.x, mouse.y, 0,
-          mouse.x, mouse.y, glowRadius * 3
+          mouse.x, mouse.y, glowRadius * 3,
         )
         gradient.addColorStop(0, 'rgba(0, 194, 255, 0.9)')
         gradient.addColorStop(0.4, 'rgba(0, 194, 255, 0.4)')
         gradient.addColorStop(1, 'rgba(0, 194, 255, 0)')
-        ctx!.beginPath()
-        ctx!.arc(mouse.x, mouse.y, glowRadius * 3, 0, Math.PI * 2)
-        ctx!.fillStyle = gradient
-        ctx!.fill()
+        ctx.beginPath()
+        ctx.arc(mouse.x, mouse.y, glowRadius * 3, 0, Math.PI * 2)
+        ctx.fillStyle = gradient
+        ctx.fill()
 
         // Draw web lines from cursor to nearby particles — for loop avoids a
         // filter() call that would allocate a temporary array every frame.
@@ -241,36 +265,30 @@ export function NetworkBackground() {
       animationId = requestAnimationFrame(drawFrame)
     }
 
-    // Mouse move handler
     const handleMouseMove = (e: MouseEvent) => {
       mouseRef.current.x = e.clientX
       mouseRef.current.y = e.clientY
     }
 
-    // Mouse leave handler — cursor leaves window
     const handleMouseLeave = () => {
       mouseRef.current.x = null
       mouseRef.current.y = null
       mouseRef.current.speed = 0
     }
 
-    // Window resize handler
     const handleResize = () => {
       resize()
       createParticles()
     }
 
-    // Initialize
     resize()
     createParticles()
-    drawFrame()
+    animationId = requestAnimationFrame(drawFrame)
 
-    // Event listeners
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseleave', handleMouseLeave)
     window.addEventListener('resize', handleResize)
 
-    // Cleanup
     return () => {
       cancelAnimationFrame(animationId)
       window.removeEventListener('mousemove', handleMouseMove)
