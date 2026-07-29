@@ -285,6 +285,40 @@ trellis status --agreement-id 01010101010101010101010101010101010101010101010101
 
 ---
 
+## Frontend SPA Routing
+
+The frontend is a single-page app using client-side routing (React Router). A
+direct load or refresh on a nested route (e.g. `/agreement/123`) must be
+served `index.html` by the web server, not a 404 — the router only resolves
+the path once the JS bundle loads.
+
+- **Vite dev server:** already configured via `appType: 'spa'` in
+  `frontend/vite.config.ts`; no extra setup needed.
+- **Netlify / Vercel / other static hosts that honor `_redirects`:**
+  `frontend/public/_redirects` ships a catch-all
+  (`/*  /index.html  200`) that is copied into `dist/` on build.
+- **nginx:** add a fallback to the `location /` block serving the built
+  `dist/` directory:
+
+  ```nginx
+  location / {
+      try_files $uri $uri/ /index.html;
+  }
+  ```
+
+- **Apache:** enable `mod_rewrite` and add to `dist/.htaccess`:
+
+  ```apache
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+  ```
+
+---
+
 ## Known Issues & Notes
 
 - **Auth per command:** Each CLI command must be signed by the correct identity.

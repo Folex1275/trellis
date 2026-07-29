@@ -51,6 +51,9 @@ export default function WalletConnect() {
         <button
           onClick={connect}
           disabled={connecting}
+          aria-pressed={false}
+          aria-disabled={connecting}
+          aria-busy={connecting}
           className="bg-cyan-400 text-navy-900 font-semibold px-5 py-2 rounded-lg text-sm hover:bg-cyan-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {connecting ? 'Connecting…' : 'Connect Wallet'}
@@ -69,6 +72,8 @@ export default function WalletConnect() {
       </span>
       <button
         onClick={disconnect}
+        aria-pressed={true}
+        aria-label={`Disconnect wallet ${truncateAddress(publicKey!)}`}
         className="text-gray-500 text-xs hover:text-gray-300 transition-colors"
       >
         Disconnect

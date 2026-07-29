@@ -2,12 +2,21 @@
  * TypingText — animates a list of strings one character at a time with a
  * blinking cursor.
  *
- * IMPORTANT: The cursor uses a single CSS animation defined in index.css
- * (`trellis-cursor-blink`).  Do NOT add Tailwind's `animate-pulse` class to
- * the cursor span — it targets the same `opacity` property and produces an
- * unpredictable, browser-inconsistent blink rate (#87).
+ * IMPORTANT: The cursor uses a single CSS animation, `trellis-cursor-blink`,
+ * scoped locally via the <style> tag below rather than defined globally in
+ * index.css — a global keyframe would apply to any element that happens to
+ * share the animation name (#105). Do NOT add Tailwind's `animate-pulse`
+ * class to the cursor span — it targets the same `opacity` property and
+ * produces an unpredictable, browser-inconsistent blink rate (#87).
  */
 import { useEffect, useRef, useState } from 'react'
+
+const CURSOR_BLINK_STYLE = `
+  @keyframes trellis-cursor-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+`
 
 interface TypingTextProps {
   /** Strings to cycle through. */
@@ -67,8 +76,9 @@ export function TypingText({
 
   return (
     <span className={className} aria-live="polite" aria-atomic="true">
+      <style>{CURSOR_BLINK_STYLE}</style>
       {displayText}
-      {/* Single animation source: trellis-cursor-blink defined in index.css.
+      {/* Single animation source: trellis-cursor-blink, scoped above.
           No animate-pulse here — that class competes for opacity (#87). */}
       <span
         aria-hidden="true"

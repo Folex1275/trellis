@@ -13,6 +13,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * (`batchSize`, default 3) rather than one at a time, reducing the number of
  * React re-renders for a typical 40-character heading from 40 down to ≤14.
  *
+ * Stall recovery (#102): the tick chain is a sequence of chained setTimeout
+ * calls — if one link fails to fire (e.g. an unexpected error interrupts the
+ * chain), the heading could otherwise be left stuck mid-type with no way to
+ * recover. A fallback timer forces the full `text` to display after 10s if
+ * the animation for the current generation hasn't finished by then.
+ *
  * @param text       The full target string to type out.
  * @param delayMs    Milliseconds between ticks (default 40 ms).
  * @param batchSize  Characters appended per tick (default 3).
@@ -28,6 +34,9 @@ export function useTypingAnimation(
   // Monotonically increasing counter — bump on every new `text` value so that
   // closures from the previous animation can detect they are stale.
   const generationRef = useRef(0)
+
+  // Max time to wait before forcing the full text to display (#102).
+  const STALL_FALLBACK_MS = 10000
 
   // typeNextChar is recreated whenever `text`, `delayMs`, or `batchSize`
   // changes so it never closes over a stale value.
@@ -61,9 +70,16 @@ export function useTypingAnimation(
     // Kick off the first tick after one delay interval.
     const timerId = setTimeout(() => typeNextChar(generation, 0), delayMs)
 
+    // Safety net: if the tick chain stalls for any reason, force the full
+    // text to show rather than leaving the heading stuck mid-type.
+    const fallbackId = setTimeout(() => {
+      if (generation === generationRef.current) setDisplayedText(text)
+    }, STALL_FALLBACK_MS)
+
     return () => {
       // Cancel the very first tick if the effect re-runs before it fires.
       clearTimeout(timerId)
+      clearTimeout(fallbackId)
     }
   }, [text, delayMs, typeNextChar])
 

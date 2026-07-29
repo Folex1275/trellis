@@ -3,8 +3,8 @@ mod config;
 mod rpc;
 mod utils;
 
-use clap::Parser;
-use commands::Commands;
+use clap::{CommandFactory, Parser};
+use commands::{Commands, OutputFormat, OutputOpts};
 use std::process;
 
 // ---------------------------------------------------------------------------
@@ -42,8 +42,42 @@ use std::process;
     propagate_version = true,
 )]
 struct Cli {
+    /// Network preset to connect to. `custom` requires `--rpc-url` and
+    /// `--network-passphrase`.
+    #[arg(long, global = true, value_enum, default_value_t = Network::Testnet)]
+    network: Network,
+
+    /// Custom Soroban RPC endpoint. Required when `--network=custom`;
+    /// overrides the preset / env var for any other network.
+    #[arg(long, global = true)]
+    rpc_url: Option<String>,
+
+    /// Custom network passphrase. Required when `--network=custom`;
+    /// overrides the preset / env var for any other network.
+    #[arg(long, global = true)]
+    network_passphrase: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
+
+    /// Output a uniform, machine-parseable JSON envelope instead of raw
+    /// command output. Takes priority over `--human-readable`.
+    #[arg(long, global = true)]
+    json: bool,
+
+    /// Parse the underlying stellar CLI output into a human-friendly,
+    /// colorized summary. Falls back to raw output if parsing fails.
+    #[arg(short = 'H', long = "human-readable", global = true)]
+    human_readable: bool,
+
+    /// Suppress all output except the final JSON result. Implies `--json`.
+    #[arg(long, global = true)]
+    quiet: bool,
+
+    /// Print the `stellar contract invoke` command that would run, without
+    /// executing it or submitting anything on-chain.
+    #[arg(long, global = true)]
+    dry_run: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -91,20 +125,49 @@ fn main() {
     // Priority: CLI args > env vars > .env file values.
     dotenvy::dotenv().ok();
 
+    let cli = Cli::parse();
+
+    // ── #75: Shell completions never touch the network or the stellar
+    // binary, so handle them before environment validation / dispatch. ────
+    // Matched by reference (not by value) so `cli.command` is still whole
+    // and movable into `dispatch` below when this arm doesn't match.
+    if let Commands::Completion { shell } = &cli.command {
+        let mut cmd = Cli::command();
+        let bin_name = cmd.get_name().to_string();
+        clap_complete::generate(*shell, &mut cmd, bin_name, &mut std::io::stdout());
+        return;
+    }
+
     // ── #68: Validate stellar binary at startup ────────────────────────────
     if let Err(msg) = validate_environment() {
         eprintln!("{msg}");
         process::exit(1);
     }
 
-    let cli = Cli::parse();
     let config = config::Config::from_env();
+
+    // ── #77/#74: --json takes priority over --human-readable; --quiet
+    // forces the JSON envelope so the only stdout line is the result. ──────
+    let format = if cli.json || cli.quiet {
+        OutputFormat::Json
+    } else if cli.human_readable {
+        OutputFormat::Human
+    } else {
+        OutputFormat::Raw
+    };
+    let opts = OutputOpts {
+        format,
+        quiet: cli.quiet,
+        dry_run: cli.dry_run,
+    };
 
     // ── #67: Propagate errors from dispatch; exit(1) only in main ─────────
     // All cleanup (destructors, buffer flushes) runs before the exit call
     // because process::exit is only called here, never inside library code.
-    if let Err(msg) = commands::dispatch(cli.command, &config) {
-        eprintln!("{msg}");
+    if let Err(msg) = commands::dispatch(cli.command, &config, &opts) {
+        if !msg.is_empty() {
+            eprintln!("{msg}");
+        }
         process::exit(1);
     }
 }
