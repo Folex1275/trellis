@@ -283,18 +283,16 @@ pub fn dispatch(cmd: Commands, config: &Config, opts: &OutputOpts) -> Result<(),
 /// Rejects any value that could be used to inject additional CLI flags or
 /// smuggle shell metacharacters through the argument list.
 fn validate_agreement_id(id: &str) -> Result<(), String> {
+    if crate::utils::is_valid_hex(id, 64) {
+        return Ok(());
+    }
     if id.len() != 64 {
         return Err(format!(
             "agreement_id must be exactly 64 hex characters, got {}",
             id.len()
         ));
     }
-    if !id.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(
-            "agreement_id must contain only hexadecimal characters (0-9, a-f, A-F)".to_string(),
-        );
-    }
-    Ok(())
+    Err("agreement_id must contain only hexadecimal characters (0-9, a-f, A-F)".to_string())
 }
 
 /// Validate a proof URI: printable, non-empty, within a reasonable length cap.

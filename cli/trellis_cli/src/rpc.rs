@@ -160,8 +160,8 @@ impl RpcClient {
 
         match output {
             Ok(out) => InvokeOutput {
-                stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+                stdout: decode_process_output("stdout", out.stdout),
+                stderr: decode_process_output("stderr", out.stderr),
                 success: out.status.success(),
                 command_debug,
             },
@@ -174,6 +174,29 @@ impl RpcClient {
                 success: false,
                 command_debug,
             },
+        }
+    }
+}
+
+/// Decode a subprocess output stream, without silently discarding bytes.
+///
+/// `String::from_utf8_lossy` replaces every invalid byte sequence with
+/// U+FFFD, which can erase the very error detail a caller needs to debug a
+/// non-UTF-8 failure. This tries strict UTF-8 first; on failure it falls
+/// back to Latin-1 (ISO-8859-1), a direct byte→codepoint mapping that never
+/// fails and preserves every original byte, and logs a warning to stderr so
+/// the user knows the output was not clean UTF-8.
+fn decode_process_output(label: &str, bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            let bytes = e.into_bytes();
+            eprintln!(
+                "warning: stellar CLI {label} was not valid UTF-8 ({} bytes); \
+                 decoding as Latin-1 — output may not render correctly",
+                bytes.len()
+            );
+            bytes.iter().map(|&b| b as char).collect()
         }
     }
 }

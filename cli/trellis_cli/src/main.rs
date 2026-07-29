@@ -28,6 +28,14 @@ use std::process;
 #[command(
     name = "trellis",
     version = env!("CARGO_PKG_VERSION"),
+    // `--version` (long form) shows this extended string; `-V` (short form)
+    // still shows the bare crate version above. Includes the on-chain
+    // contract's soroban-sdk compatibility range so bug reports carry
+    // enough environment context without a separate lookup.
+    long_version = concat!(
+        env!("CARGO_PKG_VERSION"),
+        "\nsoroban-sdk compat: >=22.0.0, <23 (see contracts/trellis_core/Cargo.toml)",
+    ),
     author,
     about,
     long_about = None,
