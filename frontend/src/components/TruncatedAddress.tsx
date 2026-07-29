@@ -6,7 +6,7 @@ interface TruncatedAddressProps {
   label?: string
 }
 
-export function TruncatedAddress({ address, chars = 8, label }: TruncatedAddressProps) {
+export default function TruncatedAddress({ address, chars = 8, label }: TruncatedAddressProps) {
   const [copied, setCopied] = useState(false)
 
   const truncated = address.length > chars * 2
@@ -45,3 +45,5 @@ export function TruncatedAddress({ address, chars = 8, label }: TruncatedAddress
     </div>
   )
 }
+
+export { TruncatedAddress }

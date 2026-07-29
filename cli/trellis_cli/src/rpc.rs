@@ -33,7 +33,8 @@ impl RpcClient {
     /// * `fn_name` – the Soroban function name (e.g. `"init"`, `"lock_funds"`)
     /// * `args`    – a flat list of `--flag value` pairs **after** the `--`
     ///               separator, e.g. `["--agreement_id", "0x…", "--payer", "G…"]`
-    pub fn invoke(config: &Config, fn_name: &str, args: &[String]) -> InvokeOutput {
+    /// * `quiet`   – suppress the retry progress messages normally printed to stderr
+    pub fn invoke(config: &Config, fn_name: &str, args: &[String], quiet: bool) -> InvokeOutput {
         // For now, fall back to stellar CLI for full compatibility.
         // A complete implementation would:
         // 1. Parse args into typed contract parameters
@@ -45,7 +46,53 @@ impl RpcClient {
         //
         // This requires Stellar SDK integration and key management,
         // so we delegate to the stellar CLI for now which handles all of this.
-        Self::invoke_with_retry(config, fn_name, args)
+        Self::invoke_with_retry(config, fn_name, args, quiet)
+    }
+
+    /// Build the exact `stellar contract invoke …` argument list and its
+    /// copy-paste-friendly command string, without executing anything.
+    ///
+    /// Shared by the real invocation path (so failures can print the command
+    /// that ran) and by `--dry-run` previews (which never execute at all).
+    fn build_cmd_args(config: &Config, fn_name: &str, args: &[String]) -> (Vec<String>, String) {
+        let mut cmd_args: Vec<String> = vec![
+            "contract".to_string(),
+            "invoke".to_string(),
+            "--id".to_string(),
+            config.contract_id.clone(),
+            "--source".to_string(),
+            config.source_key.clone(),
+            "--rpc-url".to_string(),
+            config.rpc_url.clone(),
+            "--network-passphrase".to_string(),
+            config.network_passphrase.clone(),
+            "--".to_string(),
+            fn_name.to_string(),
+        ];
+        cmd_args.extend_from_slice(args);
+
+        // Quote any argument containing whitespace so the printed command can
+        // be copy-pasted straight into a shell.
+        let command_debug = format!(
+            "stellar {}",
+            cmd_args
+                .iter()
+                .map(|a| if a.contains(' ') {
+                    format!("'{a}'")
+                } else {
+                    a.clone()
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+
+        (cmd_args, command_debug)
+    }
+
+    /// Build the `stellar contract invoke …` command that *would* run for
+    /// `fn_name`/`args`, without executing it. Used by `--dry-run`.
+    pub fn preview(config: &Config, fn_name: &str, args: &[String]) -> String {
+        Self::build_cmd_args(config, fn_name, args).1
     }
 
     /// Invoke via stellar CLI with automatic retry on transient RPC failures.
@@ -55,7 +102,7 @@ impl RpcClient {
     /// concurrent processes do not thunder-herd the RPC endpoint together.
     ///
     /// Set `STELLAR_RPC_RETRIES=0` to disable retries entirely.
-    fn invoke_with_retry(config: &Config, fn_name: &str, args: &[String]) -> InvokeOutput {
+    fn invoke_with_retry(config: &Config, fn_name: &str, args: &[String], quiet: bool) -> InvokeOutput {
         let max_retries: u32 = std::env::var("STELLAR_RPC_RETRIES")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -92,10 +139,12 @@ impl RpcClient {
             let jitter_ms = jitter_millis();
             let delay_ms = base_ms + jitter_ms;
 
-            eprintln!(
-                "RPC attempt {attempt}/{max_retries} failed (transient error), retrying in {delay_ms}ms…"
-            );
-            eprintln!("  {}", out.stderr.lines().next().unwrap_or("(no error message)"));
+            if !quiet {
+                eprintln!(
+                    "RPC attempt {attempt}/{max_retries} failed (transient error), retrying in {delay_ms}ms…"
+                );
+                eprintln!("  {}", out.stderr.lines().next().unwrap_or("(no error message)"));
+            }
 
             std::thread::sleep(std::time::Duration::from_millis(delay_ms));
         }
@@ -105,32 +154,14 @@ impl RpcClient {
     fn invoke_once(config: &Config, fn_name: &str, args: &[String]) -> InvokeOutput {
         use std::process::Command;
 
-        // Build the argument list so we can log it on failure.
-        let mut cmd_args: Vec<String> = vec![
-            "contract".to_string(),
-            "invoke".to_string(),
-            "--id".to_string(),
-            config.contract_id.clone(),
-            "--source".to_string(),
-            config.source_key.clone(),
-            "--rpc-url".to_string(),
-            config.rpc_url.clone(),
-            "--network-passphrase".to_string(),
-            config.network_passphrase.clone(),
-            "--".to_string(),
-            fn_name.to_string(),
-        ];
-        cmd_args.extend_from_slice(args);
-
-        // Human-readable version of the full command for debug output.
-        let command_debug = format!("stellar {}", cmd_args.join(" "));
+        let (cmd_args, command_debug) = Self::build_cmd_args(config, fn_name, args);
 
         let output = Command::new("stellar").args(&cmd_args).output();
 
         match output {
             Ok(out) => InvokeOutput {
-                stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+                stdout: decode_process_output("stdout", out.stdout),
+                stderr: decode_process_output("stderr", out.stderr),
                 success: out.status.success(),
                 command_debug,
             },
@@ -143,6 +174,29 @@ impl RpcClient {
                 success: false,
                 command_debug,
             },
+        }
+    }
+}
+
+/// Decode a subprocess output stream, without silently discarding bytes.
+///
+/// `String::from_utf8_lossy` replaces every invalid byte sequence with
+/// U+FFFD, which can erase the very error detail a caller needs to debug a
+/// non-UTF-8 failure. This tries strict UTF-8 first; on failure it falls
+/// back to Latin-1 (ISO-8859-1), a direct byte→codepoint mapping that never
+/// fails and preserves every original byte, and logs a warning to stderr so
+/// the user knows the output was not clean UTF-8.
+fn decode_process_output(label: &str, bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            let bytes = e.into_bytes();
+            eprintln!(
+                "warning: stellar CLI {label} was not valid UTF-8 ({} bytes); \
+                 decoding as Latin-1 — output may not render correctly",
+                bytes.len()
+            );
+            bytes.iter().map(|&b| b as char).collect()
         }
     }
 }

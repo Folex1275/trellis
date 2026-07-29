@@ -36,25 +36,25 @@ function App() {
               </p>
             </div>
 
-            <footer className="border-t border-navy-700/60 dark:border-navy-700/60 light:border-gray-200 px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-500 light:text-gray-600">
-              <p>
-                Every agreement, deposit, and dispute resolution is recorded on-chain. Verify any of
-                them yourself on{' '}
-                <a
-                  href={explorerBaseUrl()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-cyan-400 underline decoration-cyan-400/40 underline-offset-2 transition-colors hover:text-cyan-300"
-                >
-                  Stellar Expert
-                </a>
-                .
-              </p>
-            </footer>
-          </div>
-        </ToastProvider>
-      </WalletProvider>
-    </ThemeProvider>
+        <footer className="border-t border-navy-700/60 px-6 py-8 text-center text-sm text-gray-500">
+          <p>
+            Every agreement, deposit, and dispute resolution is recorded on-chain. Verify any of
+            them yourself on{' '}
+            <a
+              href={explorerBaseUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-cyan-400 underline decoration-cyan-400/40 underline-offset-2 transition-colors hover:text-cyan-300"
+            >
+              Stellar Expert
+            </a>
+            .
+          </p>
+          <p className="mt-2 text-xs text-gray-600">Trellis v{__APP_VERSION__}</p>
+        </footer>
+      </div>
+      </ToastProvider>
+    </WalletProvider>
   )
 }
 

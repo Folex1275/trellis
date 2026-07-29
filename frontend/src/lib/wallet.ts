@@ -1,11 +1,11 @@
-import {
-  isConnected as freighterIsConnected,
-  isAllowed as freighterIsAllowed,
-  requestAccess as freighterRequestAccess,
-  getAddress as freighterGetAddress,
-  getNetworkDetails as freighterGetNetworkDetails,
-  signTransaction as freighterSignTransaction,
-} from '@stellar/freighter-api';
+type FreighterApi = typeof import('@stellar/freighter-api');
+let freighterApiCache: FreighterApi | null = null;
+
+async function getFreighterApi(): Promise<FreighterApi> {
+  if (freighterApiCache) return freighterApiCache;
+  freighterApiCache = await import('@stellar/freighter-api');
+  return freighterApiCache;
+}
 
 export const DETECTION_BUDGET_MS = 4_000;
 const FLAG_POLL_INTERVAL_MS = 100;
@@ -133,7 +133,8 @@ function waitForInjectedFlag(budgetMs: number, signal: AbortSignal): Promise<boo
 }
 
 async function probeIsConnected(): Promise<boolean> {
-  const res = await withTimeout(freighterIsConnected(), CONNECTION_PROBE_TIMEOUT_MS);
+  const api = await getFreighterApi();
+  const res = await withTimeout(api.isConnected(), CONNECTION_PROBE_TIMEOUT_MS);
   if (res === TIMED_OUT) return false;
   return res.isConnected === true;
 }
@@ -164,28 +165,32 @@ export async function isFreighterInstalled(signal?: AbortSignal): Promise<boolea
 }
 
 export async function isAppAllowed(): Promise<boolean> {
-  const res = await withTimeout(freighterIsAllowed(), ALLOWED_TIMEOUT_MS);
+  const api = await getFreighterApi();
+  const res = await withTimeout(api.isAllowed(), ALLOWED_TIMEOUT_MS);
   if (res === TIMED_OUT) return false;
   if (res.error) return false;
   return res.isAllowed === true;
 }
 
 export async function getPublicKey(): Promise<string | null> {
-  const res = await withTimeout(freighterGetAddress(), ADDRESS_TIMEOUT_MS);
+  const api = await getFreighterApi();
+  const res = await withTimeout(api.getAddress(), ADDRESS_TIMEOUT_MS);
   if (res === TIMED_OUT) return null;
   if (res.error) return null;
   return res.address ? res.address : null;
 }
 
 export async function getNetworkPassphrase(): Promise<string | null> {
-  const res = await withTimeout(freighterGetNetworkDetails(), NETWORK_TIMEOUT_MS);
+  const api = await getFreighterApi();
+  const res = await withTimeout(api.getNetworkDetails(), NETWORK_TIMEOUT_MS);
   if (res === TIMED_OUT) return null;
   if (res.error) return null;
   return res.networkPassphrase ? res.networkPassphrase : null;
 }
 
 export async function connectWallet(): Promise<WalletResult<string>> {
-  const res = await withTimeout(freighterRequestAccess(), ACCESS_TIMEOUT_MS);
+  const api = await getFreighterApi();
+  const res = await withTimeout(api.requestAccess(), ACCESS_TIMEOUT_MS);
   if (res === TIMED_OUT) return { ok: false, error: TIMEOUT_ERROR };
   if (res.error) return { ok: false, error: toWalletError(res.error) };
   if (!res.address) return { ok: false, error: UNAVAILABLE_ERROR };
@@ -196,7 +201,8 @@ export async function signTransaction(
   xdr: string,
   opts?: { networkPassphrase?: string; address?: string },
 ): Promise<WalletResult<string>> {
-  const res = await withTimeout(freighterSignTransaction(xdr, opts), SIGN_TIMEOUT_MS);
+  const api = await getFreighterApi();
+  const res = await withTimeout(api.signTransaction(xdr, opts), SIGN_TIMEOUT_MS);
   if (res === TIMED_OUT) return { ok: false, error: TIMEOUT_ERROR };
   if (res.error) return { ok: false, error: toWalletError(res.error) };
   return { ok: true, value: res.signedTxXdr };

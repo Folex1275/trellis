@@ -1,7 +1,35 @@
 use clap::Subcommand;
+use clap_complete::Shell;
 
 use crate::config::Config;
-use crate::rpc::RpcClient;
+use crate::rpc::{InvokeOutput, RpcClient};
+
+// ---------------------------------------------------------------------------
+// Output rendering options (#74, #76, #77)
+// ---------------------------------------------------------------------------
+
+/// Output rendering mode selected via the global `--json` / `--human-readable`
+/// flags. `--json` takes priority when both are passed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputFormat {
+    /// Raw stdout from the underlying `stellar contract invoke` call (default).
+    Raw,
+    /// Uniform, machine-parseable JSON envelope: `{status, result, tx_hash, events, error}`.
+    Json,
+    /// Parsed, colorized human-friendly summary; falls back to raw text if parsing fails.
+    Human,
+}
+
+/// Global output/execution options threaded through every command handler.
+#[derive(Clone, Copy, Debug)]
+pub struct OutputOpts {
+    pub format: OutputFormat,
+    /// Suppress retry/progress messages so only the final JSON result is printed.
+    /// Forces `format` to `Json` regardless of `--human-readable`.
+    pub quiet: bool,
+    /// Print the `stellar contract invoke` command instead of executing it.
+    pub dry_run: bool,
+}
 
 // ---------------------------------------------------------------------------
 // Commands enum — parsed by clap from argv
@@ -35,6 +63,10 @@ pub enum Commands {
         /// Example: --milestones "1000,2000,500"
         #[arg(long)]
         milestones: String,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Lock funds for a specific milestone into the escrow contract.
@@ -46,6 +78,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to fund.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Submit proof of work for a funded milestone.
@@ -62,6 +98,10 @@ pub enum Commands {
         /// Omit the flag to submit without a proof link.
         #[arg(long)]
         proof_uri: Option<String>,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Approve submitted work and release funds to the payee.
@@ -73,6 +113,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to approve.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Raise a dispute on a funded or work-submitted milestone.
@@ -89,6 +133,10 @@ pub enum Commands {
         /// The contract validates the caller is one of these two roles.
         #[arg(long)]
         caller: String,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Resolve a disputed milestone as the designated dispute resolver.
@@ -105,6 +153,10 @@ pub enum Commands {
         /// Pass false to release funds to the payee (payee wins).
         #[arg(long, default_value = "false")]
         refund_to_payer: bool,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Cancel a milestone that was never funded (status = Pending).
@@ -116,6 +168,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to cancel.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Query the current state of an agreement.
@@ -135,13 +191,23 @@ pub enum Commands {
         #[arg(long)]
         milestone_id: u32,
     },
+
+    /// Generate a shell completion script for bash, zsh, fish, elvish, or PowerShell.
+    ///
+    /// Example installation (bash):
+    ///   trellis completion bash > /etc/bash_completion.d/trellis
+    Completion {
+        /// Target shell to generate a completion script for.
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 // ---------------------------------------------------------------------------
 // Dispatch — route each command to its handler
 // ---------------------------------------------------------------------------
 
-pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
+pub fn dispatch(cmd: Commands, config: &Config, opts: &OutputOpts) -> Result<(), String> {
     match cmd {
         Commands::Init {
             agreement_id,
@@ -150,6 +216,7 @@ pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
             token,
             resolver,
             milestones,
+            yes,
         } => run_init(
             config,
             agreement_id,
@@ -158,47 +225,52 @@ pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
             token,
             resolver,
             milestones,
+            opts,
         ),
 
         Commands::LockFunds {
             agreement_id,
             milestone_id,
-        } => run_lock_funds(config, agreement_id, milestone_id),
+        } => run_lock_funds(config, agreement_id, milestone_id, opts),
 
         Commands::SubmitWork {
             agreement_id,
             milestone_id,
             proof_uri,
-        } => run_submit_work(config, agreement_id, milestone_id, proof_uri),
+        } => run_submit_work(config, agreement_id, milestone_id, proof_uri, opts),
 
         Commands::ApproveRelease {
             agreement_id,
             milestone_id,
-        } => run_approve_release(config, agreement_id, milestone_id),
+        } => run_approve_release(config, agreement_id, milestone_id, opts),
 
         Commands::RaiseDispute {
             agreement_id,
             milestone_id,
             caller,
-        } => run_raise_dispute(config, agreement_id, milestone_id, caller),
+        } => run_raise_dispute(config, agreement_id, milestone_id, caller, opts),
 
         Commands::ResolveDispute {
             agreement_id,
             milestone_id,
             refund_to_payer,
-        } => run_resolve_dispute(config, agreement_id, milestone_id, refund_to_payer),
+        } => run_resolve_dispute(config, agreement_id, milestone_id, refund_to_payer, opts),
 
         Commands::CancelMilestone {
             agreement_id,
             milestone_id,
-        } => run_cancel_milestone(config, agreement_id, milestone_id),
+        } => run_cancel_milestone(config, agreement_id, milestone_id, opts),
 
-        Commands::Status { agreement_id } => run_status(config, agreement_id),
+        Commands::Status { agreement_id } => run_status(config, agreement_id, opts),
 
         Commands::MilestoneStatus {
             agreement_id,
             milestone_id,
-        } => run_milestone_status(config, agreement_id, milestone_id),
+        } => run_milestone_status(config, agreement_id, milestone_id, opts),
+
+        // Handled in main() before dispatch is ever reached — completions
+        // need the clap `Command` object, not a `Config`.
+        Commands::Completion { .. } => Ok(()),
     }
 }
 
@@ -211,18 +283,16 @@ pub fn dispatch(cmd: Commands, config: &Config) -> Result<(), String> {
 /// Rejects any value that could be used to inject additional CLI flags or
 /// smuggle shell metacharacters through the argument list.
 fn validate_agreement_id(id: &str) -> Result<(), String> {
+    if crate::utils::is_valid_hex(id, 64) {
+        return Ok(());
+    }
     if id.len() != 64 {
         return Err(format!(
             "agreement_id must be exactly 64 hex characters, got {}",
             id.len()
         ));
     }
-    if !id.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(
-            "agreement_id must contain only hexadecimal characters (0-9, a-f, A-F)".to_string(),
-        );
-    }
-    Ok(())
+    Err("agreement_id must contain only hexadecimal characters (0-9, a-f, A-F)".to_string())
 }
 
 /// Validate a proof URI: printable, non-empty, within a reasonable length cap.
@@ -272,11 +342,20 @@ fn run_init(
     token: String,
     resolver: String,
     milestones_csv: String,
-) {
+    opts: &OutputOpts,
+) -> Result<(), String> {
     let milestones_json = build_milestones_json(&milestones_csv).unwrap_or_else(|e| {
         eprintln!("Error: {e}");
         std::process::exit(1);
     });
+
+    confirm_action(
+        &format!(
+            "This will create agreement {agreement_id} (payer={payer}, payee={payee}, \
+             token={token}, resolver={resolver}, milestones={milestones_csv})."
+        ),
+        yes,
+    )?;
 
     let args = vec![
         "--agreement-id".to_string(),
@@ -293,8 +372,7 @@ fn run_init(
         resolver,
     ];
 
-    let out = RpcClient::invoke(config, "init", &args);
-    print_output(&out)
+    execute(config, "init", &args, opts)
 }
 
 /// `stellar contract invoke … -- lock_funds …`
@@ -304,7 +382,12 @@ fn run_init(
 /// stellar contract invoke … -- lock_funds
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+fn run_lock_funds(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    opts: &OutputOpts,
+) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -312,8 +395,7 @@ fn run_lock_funds(config: &Config, agreement_id: String, milestone_id: u32) -> R
         milestone_id.to_string(),
     ];
 
-    let out = RpcClient::invoke(config, "lock_funds", &args);
-    print_output(&out)
+    execute(config, "lock_funds", &args, opts)
 }
 
 /// `stellar contract invoke … -- submit_work …`
@@ -333,7 +415,13 @@ fn run_submit_work(
     agreement_id: String,
     milestone_id: u32,
     proof_uri: Option<String>,
+    opts: &OutputOpts,
 ) -> Result<(), String> {
+    confirm_action(
+        &format!("This will submit work for milestone {milestone_id} of agreement {agreement_id}."),
+        yes,
+    )?;
+
     let mut args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -349,8 +437,7 @@ fn run_submit_work(
         args.push(uri);
     }
 
-    let out = RpcClient::invoke(config, "submit_work", &args);
-    print_output(&out)
+    execute(config, "submit_work", &args, opts)
 }
 
 /// `stellar contract invoke … -- approve_and_release …`
@@ -360,7 +447,12 @@ fn run_submit_work(
 /// stellar contract invoke … -- approve_and_release
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+fn run_approve_release(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    opts: &OutputOpts,
+) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -368,8 +460,7 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
         milestone_id.to_string(),
     ];
 
-    let out = RpcClient::invoke(config, "approve_and_release", &args);
-    print_output(&out)
+    execute(config, "approve_and_release", &args, opts)
 }
 
 /// `stellar contract invoke … -- raise_dispute …`
@@ -383,7 +474,13 @@ fn run_approve_release(config: &Config, agreement_id: String, milestone_id: u32)
 /// `caller` is passed explicitly because the contract checks it against
 /// both `agreement.payer` and `agreement.payee` before calling
 /// `caller.require_auth()`, so either party can autonomously open a dispute.
-fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, caller: String) -> Result<(), String> {
+fn run_raise_dispute(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    caller: String,
+    opts: &OutputOpts,
+) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -393,8 +490,7 @@ fn run_raise_dispute(config: &Config, agreement_id: String, milestone_id: u32, c
         caller,
     ];
 
-    let out = RpcClient::invoke(config, "raise_dispute", &args);
-    print_output(&out)
+    execute(config, "raise_dispute", &args, opts)
 }
 
 /// `stellar contract invoke … -- resolve_dispute …`
@@ -409,7 +505,20 @@ fn run_resolve_dispute(
     agreement_id: String,
     milestone_id: u32,
     refund_to_payer: bool,
+    opts: &OutputOpts,
 ) -> Result<(), String> {
+    let outcome = if refund_to_payer {
+        "refund locked funds to the payer"
+    } else {
+        "release funds to the payee"
+    };
+    confirm_action(
+        &format!(
+            "This will resolve the dispute on milestone {milestone_id} of agreement {agreement_id} and {outcome}."
+        ),
+        yes,
+    )?;
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -419,8 +528,7 @@ fn run_resolve_dispute(
         refund_to_payer.to_string(), // "true" or "false"
     ];
 
-    let out = RpcClient::invoke(config, "resolve_dispute", &args);
-    print_output(&out)
+    execute(config, "resolve_dispute", &args, opts)
 }
 
 /// `stellar contract invoke … -- cancel_unfunded_milestone …`
@@ -430,7 +538,12 @@ fn run_resolve_dispute(
 /// stellar contract invoke … -- cancel_unfunded_milestone
 ///   --agreement-id <hex> --milestone-id <u32>
 /// ```
-fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32) -> Result<(), String> {
+fn run_cancel_milestone(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    opts: &OutputOpts,
+) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -438,8 +551,7 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
         milestone_id.to_string(),
     ];
 
-    let out = RpcClient::invoke(config, "cancel_unfunded_milestone", &args);
-    print_output(&out)
+    execute(config, "cancel_unfunded_milestone", &args, opts)
 }
 
 /// `stellar contract invoke … -- get_agreement …`
@@ -452,14 +564,10 @@ fn run_cancel_milestone(config: &Config, agreement_id: String, milestone_id: u32
 ///
 /// The stellar CLI calls the contract's `get_agreement` view function and
 /// returns the full Agreement struct as JSON, which is printed to stdout.
-fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
-    let args = vec![
-        "--agreement-id".to_string(),
-        agreement_id,
-    ];
+fn run_status(config: &Config, agreement_id: String, opts: &OutputOpts) -> Result<(), String> {
+    let args = vec!["--agreement-id".to_string(), agreement_id];
 
-    let out = RpcClient::invoke(config, "get_agreement", &args);
-    print_output(&out)
+    execute(config, "get_agreement", &args, opts)
 }
 
 /// `stellar contract invoke … -- get_milestone …`
@@ -472,7 +580,12 @@ fn run_status(config: &Config, agreement_id: String) -> Result<(), String> {
 ///
 /// Queries a single milestone by index without fetching the full Agreement,
 /// reducing deserialization cost for agreements with many milestones.
-fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32) {
+fn run_milestone_status(
+    config: &Config,
+    agreement_id: String,
+    milestone_id: u32,
+    opts: &OutputOpts,
+) -> Result<(), String> {
     let args = vec![
         "--agreement-id".to_string(),
         format!("\"{}\"", agreement_id),
@@ -480,8 +593,7 @@ fn run_milestone_status(config: &Config, agreement_id: String, milestone_id: u32
         milestone_id.to_string(),
     ];
 
-    let out = RpcClient::invoke(config, "get_milestone", &args);
-    print_output(&out);
+    execute(config, "get_milestone", &args, opts)
 }
 
 // ---------------------------------------------------------------------------
@@ -534,13 +646,199 @@ fn build_milestones_json(csv: &str) -> Result<String, String> {
     Ok(format!("[{}]", entries.join(",")))
 }
 
+/// Run an RPC invocation (or preview it, under `--dry-run`) and render the
+/// result according to `opts.format`.
+///
+/// This is the single entry point every command handler funnels through, so
+/// `--dry-run`, `--json`, `--human-readable`, and `--quiet` behave
+/// consistently across all commands (#74, #76, #77).
+fn execute(config: &Config, fn_name: &str, args: &[String], opts: &OutputOpts) -> Result<(), String> {
+    if opts.dry_run {
+        println!("{}", RpcClient::preview(config, fn_name, args));
+        return Ok(());
+    }
+
+    let out = RpcClient::invoke(config, fn_name, args, opts.quiet);
+    render_output(&out, opts)
+}
+
+/// Dispatch to the renderer selected by `opts.format`.
+fn render_output(out: &InvokeOutput, opts: &OutputOpts) -> Result<(), String> {
+    match opts.format {
+        OutputFormat::Json => render_json(out),
+        OutputFormat::Human => render_human(out),
+        OutputFormat::Raw => render_raw(out),
+    }
+}
+
+/// Default renderer: print the raw command output verbatim (original behavior).
+///
+/// On failure, prints the full verbatim command so the user can reproduce it.
+/// Returns `Ok(())` on success or `Err(message)` on failure so that callers
+/// (i.e. `main`) can run any cleanup before exiting with a non-zero exit code.
+/// This avoids calling `std::process::exit` inside a library function, which
+/// would skip destructors and flush buffers unsafely.
+fn render_raw(out: &InvokeOutput) -> Result<(), String> {
+    if out.success {
+        println!("{}", out.stdout.trim());
+        Ok(())
+    } else {
+        let mut msg = format!(
+            "── Transaction failed ──────────────────────────────────\nCommand: {}",
+            out.command_debug
+        );
+        if !out.stdout.is_empty() {
+            msg.push_str(&format!("\nstdout:\n{}", out.stdout.trim()));
+        }
+        if !out.stderr.is_empty() {
+            msg.push_str(&format!("\nstderr:\n{}", out.stderr.trim()));
+        }
+        Err(msg)
+    }
+}
+
+/// `--json` renderer (#77): a single line of uniform, machine-parseable JSON.
+///
+/// Schema: `{"status": "success"|"error", "result", "tx_hash", "events", "error"}`.
+/// `result` holds the parsed stdout payload (or the raw string if it isn't
+/// valid JSON). `tx_hash`/`events` are extracted on a best-effort basis since
+/// the underlying `stellar contract invoke` shell-out does not expose a
+/// structured transaction envelope.
+fn render_json(out: &InvokeOutput) -> Result<(), String> {
+    let envelope = json_envelope(out);
+    println!("{}", serde_json::to_string(&envelope).unwrap_or_default());
+
+    if out.success {
+        Ok(())
+    } else {
+        // Error detail is already in the JSON envelope above; returning an
+        // empty message tells main() to exit(1) without printing it again.
+        Err(String::new())
+    }
+}
+
+fn json_envelope(out: &InvokeOutput) -> serde_json::Value {
+    let trimmed_stdout = out.stdout.trim();
+
+    if out.success {
+        let result = serde_json::from_str::<serde_json::Value>(trimmed_stdout)
+            .unwrap_or_else(|_| serde_json::Value::String(trimmed_stdout.to_string()));
+
+        serde_json::json!({
+            "status": "success",
+            "result": result,
+            "tx_hash": extract_tx_hash(&out.stdout, &out.stderr),
+            "events": extract_events(&out.stderr),
+            "error": null,
+        })
+    } else {
+        let mut error = out.stderr.trim().to_string();
+        if error.is_empty() {
+            error = trimmed_stdout.to_string();
+        }
+
+        serde_json::json!({
+            "status": "error",
+            "result": null,
+            "tx_hash": null,
+            "events": null,
+            "error": error,
+        })
+    }
+}
+
+/// `--human-readable` / `-H` renderer (#74): parse the stellar CLI JSON output
+/// and print a colorized, formatted summary. Falls back to raw text if the
+/// output isn't valid JSON.
+fn render_human(out: &InvokeOutput) -> Result<(), String> {
+    const GREEN: &str = "\x1b[32m";
+    const RED: &str = "\x1b[31m";
+    const BOLD: &str = "\x1b[1m";
+    const RESET: &str = "\x1b[0m";
+
+    let trimmed = out.stdout.trim();
+
+    if out.success {
+        println!("{GREEN}{BOLD}\u{2714} Success{RESET}");
+        match serde_json::from_str::<serde_json::Value>(trimmed) {
+            Ok(serde_json::Value::Object(map)) if !map.is_empty() => {
+                for (key, value) in map {
+                    println!("  {BOLD}{key}{RESET}: {}", format_json_value(&value));
+                }
+            }
+            Ok(other) if !trimmed.is_empty() => println!("  {}", format_json_value(&other)),
+            _ if !trimmed.is_empty() => println!("  {trimmed}"),
+            _ => {}
+        }
+
+        if let serde_json::Value::Array(events) = extract_events(&out.stderr) {
+            println!("  {BOLD}events{RESET}:");
+            for event in events {
+                println!("    - {}", format_json_value(&event));
+            }
+        }
+        Ok(())
+    } else {
+        println!("{RED}{BOLD}\u{2718} Failed{RESET}");
+        println!("  {BOLD}command{RESET}: {}", out.command_debug);
+        if !trimmed.is_empty() {
+            println!("  {BOLD}stdout{RESET}: {trimmed}");
+        }
+        if !out.stderr.trim().is_empty() {
+            println!("  {BOLD}stderr{RESET}: {}", out.stderr.trim());
+        }
+        Err(String::new())
+    }
+}
+
+fn format_json_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// Best-effort extraction of a transaction hash from stdout/stderr: a
+/// standalone 64-character hex token. The stellar CLI shell-out does not
+/// expose a structured tx envelope, so this scans text output; returns
+/// `null` when nothing hex-shaped of the right length is found.
+fn extract_tx_hash(stdout: &str, stderr: &str) -> Option<String> {
+    for text in [stdout, stderr] {
+        for token in text.split(|c: char| c.is_whitespace()) {
+            let cleaned = token.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+            if cleaned.len() == 64 && cleaned.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(cleaned.to_lowercase());
+            }
+        }
+    }
+    None
+}
+
+/// Best-effort extraction of event diagnostics from stderr: any line
+/// mentioning "event" (case-insensitive). Returns `null` when none are found.
+fn extract_events(stderr: &str) -> serde_json::Value {
+    let events: Vec<serde_json::Value> = stderr
+        .lines()
+        .filter(|line| line.to_lowercase().contains("event"))
+        .map(|line| serde_json::Value::String(line.trim().to_string()))
+        .collect();
+
+    if events.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::Array(events)
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Unit tests
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use super::build_milestones_json;
+    use super::*;
+
+    // --- build_milestones_json ---
 
     #[test]
     fn test_build_milestones_json_happy_path() {
@@ -594,41 +892,6 @@ mod tests {
             r#"[{"id":0,"amount":"42","status":{"Pending":null},"proof_uri":null}]"#
         );
     }
-}
-
-/// Print the result of an RPC call.
-/// On failure, prints the full verbatim command so the user can reproduce it.
-///
-/// Returns `Ok(())` on success or `Err(message)` on failure so that
-/// callers (i.e. `main`) can run any cleanup before exiting with a non-zero
-/// exit code.  This avoids calling `std::process::exit` inside a library
-/// function, which would skip destructors and flush buffers unsafely.
-fn print_output(out: &crate::rpc::InvokeOutput) -> Result<(), String> {
-    if out.success {
-        println!("{}", out.stdout.trim());
-        Ok(())
-    } else {
-        let mut msg = format!(
-            "── Transaction failed ──────────────────────────────────\nCommand: {}",
-            out.command_debug
-        );
-        if !out.stdout.is_empty() {
-            msg.push_str(&format!("\nstdout:\n{}", out.stdout.trim()));
-        }
-        if !out.stderr.is_empty() {
-            msg.push_str(&format!("\nstderr:\n{}", out.stderr.trim()));
-        }
-        Err(msg)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     // --- validate_agreement_id ---
 
@@ -713,5 +976,31 @@ mod tests {
     fn proof_uri_accepts_max_length() {
         let uri = "a".repeat(2048);
         assert!(validate_proof_uri(&uri).is_ok());
+    }
+
+    // --- extract_tx_hash / extract_events ---
+
+    #[test]
+    fn extract_tx_hash_finds_standalone_hex() {
+        let hash = "a".repeat(64);
+        let text = format!("submitted tx {hash} ok");
+        assert_eq!(extract_tx_hash(&text, ""), Some(hash));
+    }
+
+    #[test]
+    fn extract_tx_hash_none_when_absent() {
+        assert_eq!(extract_tx_hash("no hash here", ""), None);
+    }
+
+    #[test]
+    fn extract_events_none_when_absent() {
+        assert_eq!(extract_events("plain log line"), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn extract_events_collects_matching_lines() {
+        let stderr = "info: starting\nEvent: transfer occurred\ndone";
+        let events = extract_events(stderr);
+        assert!(matches!(events, serde_json::Value::Array(ref a) if a.len() == 1));
     }
 }
