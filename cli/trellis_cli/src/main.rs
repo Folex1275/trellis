@@ -34,6 +34,21 @@ use std::process;
     propagate_version = true,
 )]
 struct Cli {
+    /// Network preset to connect to. `custom` requires `--rpc-url` and
+    /// `--network-passphrase`.
+    #[arg(long, global = true, value_enum, default_value_t = Network::Testnet)]
+    network: Network,
+
+    /// Custom Soroban RPC endpoint. Required when `--network=custom`;
+    /// overrides the preset / env var for any other network.
+    #[arg(long, global = true)]
+    rpc_url: Option<String>,
+
+    /// Custom network passphrase. Required when `--network=custom`;
+    /// overrides the preset / env var for any other network.
+    #[arg(long, global = true)]
+    network_passphrase: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 

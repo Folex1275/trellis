@@ -63,6 +63,10 @@ pub enum Commands {
         /// Example: --milestones "1000,2000,500"
         #[arg(long)]
         milestones: String,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Lock funds for a specific milestone into the escrow contract.
@@ -74,6 +78,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to fund.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Submit proof of work for a funded milestone.
@@ -90,6 +98,10 @@ pub enum Commands {
         /// Omit the flag to submit without a proof link.
         #[arg(long)]
         proof_uri: Option<String>,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Approve submitted work and release funds to the payee.
@@ -101,6 +113,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to approve.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Raise a dispute on a funded or work-submitted milestone.
@@ -117,6 +133,10 @@ pub enum Commands {
         /// The contract validates the caller is one of these two roles.
         #[arg(long)]
         caller: String,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Resolve a disputed milestone as the designated dispute resolver.
@@ -133,6 +153,10 @@ pub enum Commands {
         /// Pass false to release funds to the payee (payee wins).
         #[arg(long, default_value = "false")]
         refund_to_payer: bool,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Cancel a milestone that was never funded (status = Pending).
@@ -144,6 +168,10 @@ pub enum Commands {
         /// Zero-based index of the milestone to cancel.
         #[arg(long)]
         milestone_id: u32,
+
+        /// Skip the confirmation prompt (for scripting).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
     },
 
     /// Query the current state of an agreement.
@@ -188,6 +216,7 @@ pub fn dispatch(cmd: Commands, config: &Config, opts: &OutputOpts) -> Result<(),
             token,
             resolver,
             milestones,
+            yes,
         } => run_init(
             config,
             agreement_id,
@@ -322,6 +351,14 @@ fn run_init(
         std::process::exit(1);
     });
 
+    confirm_action(
+        &format!(
+            "This will create agreement {agreement_id} (payer={payer}, payee={payee}, \
+             token={token}, resolver={resolver}, milestones={milestones_csv})."
+        ),
+        yes,
+    )?;
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -382,6 +419,11 @@ fn run_submit_work(
     proof_uri: Option<String>,
     opts: &OutputOpts,
 ) -> Result<(), String> {
+    confirm_action(
+        &format!("This will submit work for milestone {milestone_id} of agreement {agreement_id}."),
+        yes,
+    )?;
+
     let mut args = vec![
         "--agreement-id".to_string(),
         agreement_id,
@@ -467,6 +509,18 @@ fn run_resolve_dispute(
     refund_to_payer: bool,
     opts: &OutputOpts,
 ) -> Result<(), String> {
+    let outcome = if refund_to_payer {
+        "refund locked funds to the payer"
+    } else {
+        "release funds to the payee"
+    };
+    confirm_action(
+        &format!(
+            "This will resolve the dispute on milestone {milestone_id} of agreement {agreement_id} and {outcome}."
+        ),
+        yes,
+    )?;
+
     let args = vec![
         "--agreement-id".to_string(),
         agreement_id,

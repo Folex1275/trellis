@@ -39,6 +39,20 @@ function encodeTopicFilter(symbol: string): string {
   return scVal.toXDR('base64')
 }
 
+// ── Config validation ─────────────────────────────────────────────────────────
+
+const PLACEHOLDER_PATTERNS = [/^your[_-]/i, /^changeme$/i, /^placeholder$/i, /^xxx+$/i, /^example$/i, /^unset/i]
+
+function isPlaceholderValue(value: string): boolean {
+  return PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(value.trim()))
+}
+
+function warnIfPlaceholder(name: string, value: string): void {
+  if (isPlaceholderValue(value)) {
+    console.warn(`[useContractStats] ${name} looks like a placeholder value: "${value}"`)
+  }
+}
+
 // ── RPC helpers ───────────────────────────────────────────────────────────────
 
 interface RpcEventFilter {
@@ -192,6 +206,20 @@ export function useContractStats(): UseContractStatsResult {
   }, [])
 
   useEffect(() => {
+    // Runtime assertion (#81): CONTRACT_ID and RPC_URL must both be set and
+    // non-empty before we ever attempt to query — a silently missing value
+    // would otherwise mean querying the wrong (or no) contract.
+    if (!CONTRACT_ID || !RPC_URL) {
+      console.error(
+        '[useContractStats] CONTRACT_ID or RPC_URL is not set. ' +
+          'Check VITE_CONTRACT_ID and VITE_RPC_URL in your .env file.',
+      )
+      setStatus('error')
+      return
+    }
+    warnIfPlaceholder('CONTRACT_ID', CONTRACT_ID)
+    warnIfPlaceholder('RPC_URL', RPC_URL)
+
     const controller = new AbortController()
 
     // Initial fetch
