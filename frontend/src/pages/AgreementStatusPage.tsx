@@ -1,29 +1,94 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { addToHistory } from '../lib/history'
+import { useAgreement } from '../hooks/useAgreement'
+import AgreementDetail from '../components/AgreementDetail'
+import EventFeed from '../components/EventFeed'
 
 function AgreementStatusPage() {
   const { id } = useParams<{ id: string }>()
+  const [searchId, setSearchId] = useState(id || '')
+  const [queriedId, setQueriedId] = useState<string | null>(id || null)
+
+  const { agreement, isLoading, isError, error, refetch } = useAgreement(queriedId)
 
   // Viewing an agreement records it in the local history list.
   useEffect(() => {
-    if (!id) return
-    addToHistory({ agreementId: id, lastViewed: new Date().toISOString() })
-  }, [id])
+    if (!queriedId) return
+    addToHistory({ agreementId: queriedId, lastViewed: new Date().toISOString() })
+  }, [queriedId])
+
+  const handleSearch = () => {
+    if (searchId.trim()) {
+      setQueriedId(searchId.trim())
+    }
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch()
+    }
+  }
 
   return (
-    <main className="px-6 pt-16 pb-32 max-w-3xl mx-auto">
+    <main className="px-6 pt-16 pb-32 max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold text-white">Agreement Status</h1>
-      {id ? (
-        <p className="mt-3 text-gray-400 font-mono break-all">{id}</p>
-      ) : (
-        <p className="mt-3 text-gray-400">
-          Look up an agreement by its 64-character hex ID.
-        </p>
-      )}
-      <div className="mt-10 rounded-xl border border-navy-700 bg-navy-800/60 p-8 text-gray-500">
-        The agreement status view lands here in a follow-up issue.
+      <p className="mt-3 text-gray-400">
+        Look up an agreement by its 64-character hex ID.
+      </p>
+
+      {/* Search Input */}
+      <div className="mt-6 flex gap-2">
+        <input
+          type="text"
+          value={searchId}
+          onChange={(e) => setSearchId(e.target.value)}
+          onKeyPress={handleKeyPress}
+          placeholder="Enter agreement ID (hex)"
+          className="flex-1 px-4 py-3 bg-navy-800 border border-navy-700 text-white rounded-lg focus:outline-none focus:border-cyan-400"
+        />
+        <button
+          onClick={handleSearch}
+          disabled={!searchId.trim()}
+          className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-navy-900 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Search
+        </button>
       </div>
+
+      {/* Loading State */}
+      {isLoading && (
+        <div className="mt-10 rounded-xl border border-navy-700 bg-navy-800/60 p-8">
+          <div className="animate-pulse space-y-4">
+            <div className="h-6 bg-navy-700 rounded w-1/3" />
+            <div className="h-4 bg-navy-700 rounded w-2/3" />
+            <div className="h-4 bg-navy-700 rounded w-1/2" />
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {isError && (
+        <div className="mt-10 rounded-xl border border-red-500/50 bg-navy-800/60 p-8">
+          <p className="text-red-400 font-semibold mb-2">Agreement not found</p>
+          <p className="text-sm text-gray-400">{error || 'The agreement ID may be invalid or the agreement does not exist.'}</p>
+        </div>
+      )}
+
+      {/* Agreement Data */}
+      {agreement && !isLoading && (
+        <div className="mt-10 space-y-6">
+          <AgreementDetail agreement={agreement} onUpdate={refetch} />
+          <EventFeed agreementId={agreement.agreement_id} />
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!queriedId && !isLoading && (
+        <div className="mt-10 rounded-xl border border-navy-700 bg-navy-800/60 p-8 text-center">
+          <p className="text-gray-400">Enter an agreement ID above to view its details</p>
+        </div>
+      )}
     </main>
   )
 }
