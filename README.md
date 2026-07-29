@@ -220,6 +220,41 @@ trellis lock-funds --agreement-id <hex-id> --milestone-id 0
 
 All 8 CLI commands are implemented — `init`, `lock-funds`, `submit-work`, `approve-release`, `raise-dispute`, `resolve-dispute`, `cancel-milestone`, and `status`. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full command reference.
 
+#### Global output flags
+
+These flags work with every command and can be combined with `.env`/env-var configuration:
+
+```bash
+# Preview the stellar CLI command a state-mutating command would run, without submitting anything
+trellis lock-funds --agreement-id <hex-id> --milestone-id 0 --dry-run
+
+# Machine-parseable JSON envelope: {"status", "result", "tx_hash", "events", "error"}
+trellis status --agreement-id <hex-id> --json
+
+# Suppress everything except the final JSON result (implies --json)
+trellis status --agreement-id <hex-id> --quiet
+
+# Parsed, colorized summary instead of raw stellar CLI JSON (falls back to raw text if parsing fails)
+trellis status --agreement-id <hex-id> --human-readable   # or -H
+```
+
+`--json` takes priority over `--human-readable` when both are passed.
+
+#### Shell completions
+
+```bash
+# bash
+trellis completion bash > /etc/bash_completion.d/trellis
+
+# zsh
+trellis completion zsh > "${fpath[1]}/_trellis"
+
+# fish
+trellis completion fish > ~/.config/fish/completions/trellis.fish
+```
+
+Supported shells: `bash`, `zsh`, `fish`, `elvish`, `powershell`.
+
 ---
 
 ## Project Status
