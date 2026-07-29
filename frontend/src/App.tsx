@@ -74,6 +74,7 @@ function App() {
             </a>
             .
           </p>
+          <p className="mt-2 text-xs text-gray-600">Trellis v{__APP_VERSION__}</p>
         </footer>
       </div>
       </ToastProvider>

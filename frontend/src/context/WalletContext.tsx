@@ -31,6 +31,7 @@ interface WalletContextValue {
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 const STORAGE_KEY = 'trellis_wallet_connected';
+const ACCOUNT_POLL_INTERVAL_MS = 3_000;
 
 function readIntent(): boolean {
   try {
@@ -133,6 +134,32 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     return () => controller.abort();
   }, [detectNonce, refreshNetwork]);
+
+  // While connected, poll for the active Freighter account and network so
+  // switching accounts or networks in the extension (which fires no event
+  // Freighter exposes) is reflected here instead of silently going stale.
+  useEffect(() => {
+    if (phase !== 'connected') return;
+
+    const intervalId = setInterval(() => {
+      void (async () => {
+        const [address, passphrase] = await Promise.all([getPublicKey(), getNetworkPassphrase()]);
+
+        if (!address) {
+          writeIntent(false);
+          setPublicKey(null);
+          setNetworkPassphrase(null);
+          setPhase('idle');
+          return;
+        }
+
+        setPublicKey((prev) => (prev !== address ? address : prev));
+        setNetworkPassphrase((prev) => (prev !== passphrase ? passphrase : prev));
+      })();
+    }, ACCOUNT_POLL_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [phase]);
 
   const connect = useCallback(async () => {
     setError(null);
