@@ -1,4 +1,4 @@
-import { useNavigate as useNavigateRouter } from '../lib/router'
+import { useNavigate } from 'react-router-dom'
 import { useTypingAnimation } from '../hooks/useTypingAnimation'
 import { HowItWorks } from '../components/HowItWorks'
 import useToast from '../hooks/useToast'
@@ -14,7 +14,7 @@ import useToast from '../hooks/useToast'
  *   icon files (#95).
  */
 export default function HomePage() {
-  const navigate = useNavigateRouter()
+  const navigate = useNavigate()
   const toast = useToast()
 
   // Animate the hero heading. The hook handles race conditions and batches
@@ -35,7 +35,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="relative min-h-screen text-gray-200">
+    <div className="relative min-h-screen text-gray-200 dark:text-gray-200 light:text-gray-900">
       <div className="relative z-10">
         <main className="flex flex-col items-center justify-center px-6 pt-24 pb-32 text-center">
           {/*
@@ -44,7 +44,7 @@ export default function HomePage() {
            */}
           <h1
             aria-label="Trustless Escrow for Remote Work"
-            className="text-4xl sm:text-5xl font-bold tracking-tight text-white max-w-2xl leading-tight min-h-[3rem]"
+            className="text-4xl sm:text-5xl font-bold tracking-tight text-white dark:text-white light:text-gray-900 max-w-2xl leading-tight min-h-[3rem]"
           >
             {heading}
             {/* Blinking cursor while typing is in progress */}
@@ -53,7 +53,7 @@ export default function HomePage() {
             )}
           </h1>
 
-          <p className="mt-4 text-gray-400 text-lg sm:text-xl max-w-xl">
+          <p className="mt-4 text-gray-400 dark:text-gray-400 light:text-gray-600 text-lg sm:text-xl max-w-xl">
             Built on Stellar's Soroban smart contract platform
           </p>
 
@@ -102,8 +102,8 @@ export default function HomePage() {
               onClick={() => handleCheckStatus()}
               className="
                 cursor-pointer text-left
-                bg-navy-800/50 border border-navy-700 rounded-lg p-6
-                hover:border-cyan-400/40 hover:bg-navy-800/70
+                bg-navy-800/50 dark:bg-navy-800/50 light:bg-gray-50 border border-navy-700 dark:border-navy-700 light:border-gray-200 rounded-lg p-6
+                hover:border-cyan-400/40 hover:bg-navy-800/70 dark:hover:bg-navy-800/70 light:hover:bg-gray-100
                 active:scale-95
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900
                 transition-all
@@ -111,7 +111,7 @@ export default function HomePage() {
               aria-label="Read any agreement — navigate to status page"
             >
               <h3 className="text-cyan-400 font-bold text-lg mb-2">Read Any Agreement</h3>
-              <p className="text-gray-400 text-sm">
+              <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm">
                 Paste an Agreement ID to view its current on-chain state — no wallet
                 connection needed.
               </p>
@@ -122,8 +122,8 @@ export default function HomePage() {
               onClick={() => handleCreateAgreement()}
               className="
                 cursor-pointer text-left
-                bg-navy-800/50 border border-navy-700 rounded-lg p-6
-                hover:border-cyan-400/40 hover:bg-navy-800/70
+                bg-navy-800/50 dark:bg-navy-800/50 light:bg-gray-50 border border-navy-700 dark:border-navy-700 light:border-gray-200 rounded-lg p-6
+                hover:border-cyan-400/40 hover:bg-navy-800/70 dark:hover:bg-navy-800/70 light:hover:bg-gray-100
                 active:scale-95
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900
                 transition-all
@@ -131,7 +131,7 @@ export default function HomePage() {
               aria-label="Create and fund milestones — navigate to create page"
             >
               <h3 className="text-cyan-400 font-bold text-lg mb-2">Create &amp; Fund Milestones</h3>
-              <p className="text-gray-400 text-sm">
+              <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm">
                 Create escrow agreements with multiple milestones and fund them directly
                 from the browser.
               </p>
@@ -142,8 +142,8 @@ export default function HomePage() {
               onClick={() => handleComingSoon('Audit Trail')}
               className="
                 cursor-pointer text-left
-                bg-navy-800/50 border border-navy-700 rounded-lg p-6
-                hover:border-cyan-400/40 hover:bg-navy-800/70
+                bg-navy-800/50 dark:bg-navy-800/50 light:bg-gray-50 border border-navy-700 dark:border-navy-700 light:border-gray-200 rounded-lg p-6
+                hover:border-cyan-400/40 hover:bg-navy-800/70 dark:hover:bg-navy-800/70 light:hover:bg-gray-100
                 active:scale-95
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900
                 transition-all
@@ -151,7 +151,7 @@ export default function HomePage() {
               aria-label="Complete audit trail — coming soon"
             >
               <h3 className="text-cyan-400 font-bold text-lg mb-2">Complete Audit Trail</h3>
-              <p className="text-gray-400 text-sm">
+              <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm">
                 Every action emits an on-chain event — full history and transparency for
                 all parties.
               </p>
