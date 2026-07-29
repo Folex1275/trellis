@@ -51,6 +51,10 @@ export function NetworkBackground() {
 
     let animationId: number
     let particles: Particle[] = []
+    let resizeTimeoutId: ReturnType<typeof setTimeout> | null = null
+    let lastResizeTime = 0
+    // Max 10 recalculations/second so rapid window dragging doesn't pin the CPU.
+    const RESIZE_THROTTLE_MS = 100
 
     // Pre-indexed buckets — populated once, reused every frame (no per-frame
     // allocation). Index matches the Layer value (0, 1, 2).
@@ -276,9 +280,51 @@ export function NetworkBackground() {
       mouseRef.current.speed = 0
     }
 
-    const handleResize = () => {
+    /**
+     * Recalibrates particle positions on resize instead of leaving them at
+     * their original (now-stale) coordinates, which would otherwise cluster
+     * particles in one corner or push them outside the new viewport (#103).
+     * Positions are rescaled proportionally — old x/y * (newDim/oldDim) —
+     * rather than fully re-randomized, so the layout shifts smoothly instead
+     * of jumping.
+     */
+    const recalibrateParticles = (oldWidth: number, oldHeight: number) => {
+      const newWidth = canvas!.width
+      const newHeight = canvas!.height
+      if (oldWidth <= 0 || oldHeight <= 0) {
+        createParticles()
+        return
+      }
+      const scaleX = newWidth / oldWidth
+      const scaleY = newHeight / oldHeight
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i]
+        p.x *= scaleX
+        p.y *= scaleY
+        p.baseX *= scaleX
+        p.baseY *= scaleY
+      }
+    }
+
+    const performResize = () => {
+      lastResizeTime = Date.now()
+      const oldWidth = canvas!.width
+      const oldHeight = canvas!.height
       resize()
-      createParticles()
+      recalibrateParticles(oldWidth, oldHeight)
+    }
+
+    const handleResize = () => {
+      const now = Date.now()
+      const elapsed = now - lastResizeTime
+      if (elapsed >= RESIZE_THROTTLE_MS) {
+        performResize()
+        return
+      }
+      // Trailing call so the final size in a burst of resize events is
+      // always applied, even if it arrives inside the throttle window.
+      if (resizeTimeoutId !== null) clearTimeout(resizeTimeoutId)
+      resizeTimeoutId = setTimeout(performResize, RESIZE_THROTTLE_MS - elapsed)
     }
 
     resize()
@@ -291,6 +337,7 @@ export function NetworkBackground() {
 
     return () => {
       cancelAnimationFrame(animationId)
+      if (resizeTimeoutId !== null) clearTimeout(resizeTimeoutId)
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseleave', handleMouseLeave)
       window.removeEventListener('resize', handleResize)
