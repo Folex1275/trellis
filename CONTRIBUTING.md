@@ -264,7 +264,24 @@ Before committing Rust changes, format them:
 cargo fmt
 ```
 
-## 11. Getting Help
+## 11. Frontend Versioning
+
+The frontend (`frontend/package.json`) follows [Semantic Versioning](https://semver.org/):
+
+- **MAJOR** — breaking changes to the contract interface the frontend depends on, or a rewrite of core user flows.
+- **MINOR** — new user-facing features that stay backward compatible (e.g. a new page, a new wallet capability).
+- **PATCH** — bug fixes, accessibility fixes, styling, and other non-feature changes.
+
+To cut a new version:
+
+```bash
+cd frontend
+npm version patch   # or minor / major
+```
+
+This updates `package.json` and creates a matching git tag. The version is injected into the build via `vite.config.ts` (`__APP_VERSION__`, sourced from `npm_package_version`) and rendered in the app footer, so every deployed build is traceable to a version.
+
+## 12. Getting Help
 
 Use the right channel for the question:
 

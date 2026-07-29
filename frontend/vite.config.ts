@@ -5,7 +5,14 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // 'spa' makes the dev server fall back to index.html for any path that
+  // isn't a real file, so a hard refresh on a client-side route (e.g.
+  // /agreement/123) resolves through React Router instead of 404ing.
+  appType: 'spa',
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? '0.0.0'),
+  },
   test: {
     // Components render against the DOM, so the whole suite runs in jsdom
     // rather than splitting into separate node/jsdom projects.
