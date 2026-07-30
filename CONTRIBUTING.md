@@ -281,7 +281,26 @@ npm version patch   # or minor / major
 
 This updates `package.json` and creates a matching git tag. The version is injected into the build via `vite.config.ts` (`__APP_VERSION__`, sourced from `npm_package_version`) and rendered in the app footer, so every deployed build is traceable to a version.
 
-## 12. Getting Help
+## 12. Frontend Tests and Manual Testnet Verification
+
+Run the frontend checks before opening a PR that touches `frontend/`:
+
+```bash
+cd frontend
+npm ci
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+For changes that affect contract calls or wallet flows, also verify manually against Testnet:
+
+1. Follow the deployment/setup steps in [DEPLOYMENT.md](DEPLOYMENT.md) to point the frontend at a Testnet contract instance.
+2. Run `npm run dev` and exercise the affected flow end to end (e.g. init, fund, submit, approve/dispute) using a Freighter Testnet account.
+3. Confirm the transaction succeeds in Freighter and the resulting state is reflected in the UI.
+
+## 13. Getting Help
 
 Use the right channel for the question:
 
