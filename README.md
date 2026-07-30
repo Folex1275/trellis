@@ -6,7 +6,8 @@
 
 **Trustless, milestone-based escrow for freelance and remote work — built on Stellar's Soroban smart contract platform.**
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
+[![Contract CI](https://github.com/Trellis-Ecosystem/trellis/actions/workflows/contract-ci.yml/badge.svg)](https://github.com/Trellis-Ecosystem/trellis/actions/workflows/contract-ci.yml)
+[![Frontend CI](https://github.com/Trellis-Ecosystem/trellis/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Trellis-Ecosystem/trellis/actions/workflows/frontend-ci.yml)
 [![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust)]()
 [![Soroban](https://img.shields.io/badge/soroban-sdk%2022.x-blue)]()
 [![Deployed](https://img.shields.io/badge/testnet-live-success)]()

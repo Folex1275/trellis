@@ -1,0 +1,63 @@
+name: Contract CI
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'contracts/**'
+      - 'cli/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/contract-ci.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'contracts/**'
+      - 'cli/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/contract-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: contract-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Build, test, clippy & fmt
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build (native)
+        run: cargo build --workspace
+
+      - name: Build contract (wasm32)
+        run: cargo build --package trellis_core --target wasm32-unknown-unknown --release
+
+      - name: Test
+        run: cargo test --workspace
