@@ -1,6 +1,7 @@
 /target
 **/target
 .env
+contracts/trellis_core/.env
 *.log
 
 # Cargo.lock is tracked for the CLI binary crate to ensure reproducible builds.

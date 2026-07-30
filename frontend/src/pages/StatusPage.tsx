@@ -4,7 +4,7 @@ import type { Agreement, SorobanEvent } from '../lib/soroban';
 import { sorobanServer } from '../lib/soroban';
 import { useWallet } from '../lib/useWallet';
 import { CONTRACT_ID } from '../lib/config';
-import { ExplorerLink } from '../components/ExplorerLink';
+import { addToHistory } from '../lib/history';
 import MilestoneRow from '../components/MilestoneRow';
 import StatsBar from '../components/StatsBar';
 import { AgreementCardSkeleton } from '../components/skeletons';
@@ -67,6 +67,12 @@ export default function StatusPage() {
       handleQuery(initialId);
     }
   }, []);
+
+  // Record successful agreement views in local history
+  useEffect(() => {
+    if (!agreement || !agreementId) return
+    addToHistory({ agreementId: agreement.agreement_id, lastViewed: new Date().toISOString() })
+  }, [agreement, agreementId])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-navy-900 via-navy-800 to-navy-900 dark:from-navy-900 dark:via-navy-800 dark:to-navy-900 light:from-white light:via-gray-50 light:to-white px-6 py-12">
