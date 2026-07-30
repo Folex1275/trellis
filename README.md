@@ -144,10 +144,17 @@ call it, and the caller pays the rent.
 
 - **[Soroban](https://developers.stellar.org/docs/build/smart-contracts)** — Stellar's Rust-based smart contract platform (`#![no_std]`, compiles to WASM)
 - **soroban-sdk 22.x** — contract types, storage, auth, and token interfaces
-- **clap 4** — CLI argument parsing
+- **clap 4** — CLI argument parsing and shell completions
+- **clap_complete** — shell completion generation
+- **reqwest** — Rust HTTP client for Soroban RPC
+- **serde + serde_json** — structured data serialization
+- **dotenvy** — environment variable loading from `.env`
 - **React + Vite + TypeScript** — frontend dashboard
-- **Tailwind CSS** — styling
-- **@stellar/stellar-sdk** — Soroban contract interaction from the browser
+- **Tailwind CSS** — frontend styling
+- **@stellar/stellar-sdk** — Soroban contract interaction and transaction building
+- **@stellar/freighter-api** — Freighter wallet integration
+- **React Router** — client-side SPA routing
+- **Vitest + Testing Library** — frontend testing
 
 Why Soroban: contracts are written in real Rust, compiled to WASM, and run on the Stellar network — which has fast finality, low fees, and an established USDC presence via Circle's Stellar Asset Contract, making it well-suited for cross-border payment use cases like this one.
 
@@ -181,6 +188,14 @@ cargo test
 ```
 
 All 9 integration tests run in the Soroban sandbox — happy path, double-init protection, dispute resolution, milestone cancellation (including the state-transition guard on already-funded milestones), positive-amount validation on `init`, the pre-computed `total_amount`, and the `get_agreement` view function.
+
+### Build everything at once
+
+```bash
+make build
+```
+
+Runs the contract WASM build, CLI binary build, and frontend bundle in sequence. See `make help` for all available targets.
 
 ### Build the contract WASM
 

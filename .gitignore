@@ -1,4 +1,5 @@
 /target
 **/target
 .env
+contracts/trellis_core/.env
 *.log
