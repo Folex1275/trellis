@@ -12,6 +12,7 @@
 [![Deployed](https://img.shields.io/badge/testnet-live-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 [![Status](https://img.shields.io/badge/status-active%20development-yellow)]()
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 </div>
 
