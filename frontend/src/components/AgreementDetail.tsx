@@ -1,8 +1,6 @@
-import { useCallback, useState } from 'react'
 import { ExplorerLink } from './ExplorerLink'
 import MilestoneActions from './MilestoneActions'
-import TruncatedAddress from './TruncatedAddress'
-import useToast from '../hooks/useToast'
+import CopyButton from './CopyButton'
 import type { Agreement } from '../lib/soroban'
 
 interface AgreementDetailProps {
@@ -11,23 +9,6 @@ interface AgreementDetailProps {
 }
 
 export default function AgreementDetail({ agreement, onUpdate }: AgreementDetailProps) {
-  const toast = useToast()
-  const [copiedField, setCopiedField] = useState<string | null>(null)
-
-  const handleCopy = useCallback(
-    async (text: string, fieldName: string) => {
-      try {
-        await navigator.clipboard.writeText(text)
-        setCopiedField(fieldName)
-        toast.success({ title: `${fieldName} copied` })
-        setTimeout(() => setCopiedField(null), 2000)
-      } catch {
-        toast.error({ title: 'Copy failed', message: 'Clipboard access blocked' })
-      }
-    },
-    [toast],
-  )
-
   return (
     <div className="space-y-6">
       {/* Agreement Header */}
@@ -38,17 +19,8 @@ export default function AgreementDetail({ agreement, onUpdate }: AgreementDetail
           <div className="flex items-center justify-between">
             <span className="text-gray-400">Agreement ID</span>
             <div className="flex items-center gap-2">
-              <TruncatedAddress address={agreement.agreement_id} />
-              <button
-                onClick={() => handleCopy(agreement.agreement_id, 'Agreement ID')}
-                className="text-gray-400 hover:text-cyan-400 transition-colors"
-                aria-label="Copy agreement ID"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-                  <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
-                  <path d="M5 15V6a1 1 0 0 1 1-1h9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
+              <ExplorerLink type="contract" value={agreement.agreement_id} />
+              <CopyButton text={agreement.agreement_id} label="Copy agreement ID" />
             </div>
           </div>
 
@@ -56,16 +28,7 @@ export default function AgreementDetail({ agreement, onUpdate }: AgreementDetail
             <span className="text-gray-400">Payer</span>
             <div className="flex items-center gap-2">
               <ExplorerLink type="account" value={agreement.payer} />
-              <button
-                onClick={() => handleCopy(agreement.payer, 'Payer address')}
-                className="text-gray-400 hover:text-cyan-400 transition-colors"
-                aria-label="Copy payer address"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-                  <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
-                  <path d="M5 15V6a1 1 0 0 1 1-1h9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
+              <CopyButton text={agreement.payer} label="Copy payer address" />
             </div>
           </div>
 
@@ -73,16 +36,7 @@ export default function AgreementDetail({ agreement, onUpdate }: AgreementDetail
             <span className="text-gray-400">Payee</span>
             <div className="flex items-center gap-2">
               <ExplorerLink type="account" value={agreement.payee} />
-              <button
-                onClick={() => handleCopy(agreement.payee, 'Payee address')}
-                className="text-gray-400 hover:text-cyan-400 transition-colors"
-                aria-label="Copy payee address"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-                  <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
-                  <path d="M5 15V6a1 1 0 0 1 1-1h9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
+              <CopyButton text={agreement.payee} label="Copy payee address" />
             </div>
           </div>
 
@@ -90,16 +44,7 @@ export default function AgreementDetail({ agreement, onUpdate }: AgreementDetail
             <span className="text-gray-400">Resolver</span>
             <div className="flex items-center gap-2">
               <ExplorerLink type="account" value={agreement.dispute_resolver} />
-              <button
-                onClick={() => handleCopy(agreement.dispute_resolver, 'Resolver address')}
-                className="text-gray-400 hover:text-cyan-400 transition-colors"
-                aria-label="Copy resolver address"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-                  <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
-                  <path d="M5 15V6a1 1 0 0 1 1-1h9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
+              <CopyButton text={agreement.dispute_resolver} label="Copy resolver address" />
             </div>
           </div>
 

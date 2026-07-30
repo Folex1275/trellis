@@ -55,6 +55,7 @@ function App() {
       </div>
       </ToastProvider>
     </WalletProvider>
+    </ThemeProvider>
   )
 }
 

@@ -9,6 +9,8 @@ import {
   type AgreementRole,
   type HistoryEntry,
 } from '../lib/history'
+import { ExplorerLink } from '../components/ExplorerLink'
+import CopyButton from '../components/CopyButton'
 
 const ROLE_STYLES: Record<AgreementRole, string> = {
   payer: 'border-cyan-400/40 text-cyan-400',
@@ -26,18 +28,6 @@ function AgreementHistoryPage() {
   useEffect(() => {
     setEntries(getHistory())
   }, [])
-
-  const handleCopy = useCallback(
-    async (agreementId: string) => {
-      try {
-        await navigator.clipboard.writeText(agreementId)
-        toast.success({ title: 'Agreement ID copied' })
-      } catch {
-        toast.error({ title: 'Could not copy', message: 'Clipboard access was blocked.' })
-      }
-    },
-    [toast],
-  )
 
   const handleRemove = useCallback((agreementId: string) => {
     removeFromHistory(agreementId)
@@ -123,22 +113,8 @@ function AgreementHistoryPage() {
                   <code className="font-mono text-sm text-gray-400">
                     {truncateAgreementId(entry.agreementId)}
                   </code>
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(entry.agreementId)}
-                    aria-label={`Copy agreement ID ${entry.agreementId}`}
-                    className="text-gray-500 transition-colors hover:text-cyan-400"
-                  >
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
-                      <path
-                        d="M5 15V6a1 1 0 0 1 1-1h9"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
+                  <ExplorerLink type="contract" value={entry.agreementId} />
+                  <CopyButton text={entry.agreementId} label={`Copy agreement ID ${entry.agreementId}`} />
                 </div>
 
                 <p className="mt-1 text-xs text-gray-500">

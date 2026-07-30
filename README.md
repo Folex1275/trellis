@@ -310,7 +310,7 @@ If you're new to Soroban, the [official Soroban docs](https://developers.stellar
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE) for the full text.
 
 ---
 

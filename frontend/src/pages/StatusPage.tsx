@@ -4,6 +4,7 @@ import type { Agreement, SorobanEvent } from '../lib/soroban';
 import { sorobanServer } from '../lib/soroban';
 import { useWallet } from '../lib/useWallet';
 import { CONTRACT_ID } from '../lib/config';
+import { ExplorerLink } from '../components/ExplorerLink';
 import MilestoneRow from '../components/MilestoneRow';
 import StatsBar from '../components/StatsBar';
 import { AgreementCardSkeleton } from '../components/skeletons';
@@ -111,23 +112,23 @@ export default function StatusPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm mb-1">Payer</p>
-                  <p className="text-white dark:text-white light:text-gray-900 font-mono text-sm break-all">{agreement.payer}</p>
+                  <ExplorerLink type="account" value={agreement.payer} full />
                 </div>
                 <div>
                   <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm mb-1">Payee</p>
-                  <p className="text-white dark:text-white light:text-gray-900 font-mono text-sm break-all">{agreement.payee}</p>
+                  <ExplorerLink type="account" value={agreement.payee} full />
                 </div>
                 <div>
                   <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm mb-1">Token</p>
-                  <p className="text-white dark:text-white light:text-gray-900 font-mono text-sm break-all">{agreement.token}</p>
+                  <ExplorerLink type="contract" value={agreement.token} full />
                 </div>
                 <div>
                   <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm mb-1">Dispute Resolver</p>
-                  <p className="text-white dark:text-white light:text-gray-900 font-mono text-sm break-all">{agreement.dispute_resolver}</p>
+                  <ExplorerLink type="account" value={agreement.dispute_resolver} full />
                 </div>
                 <div>
                   <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm mb-1">Agreement ID</p>
-                  <p className="text-white dark:text-white light:text-gray-900 font-mono text-sm break-all">{agreement.agreement_id}</p>
+                  <ExplorerLink type="contract" value={agreement.agreement_id} full />
                 </div>
                 <div>
                   <p className="text-gray-400 dark:text-gray-400 light:text-gray-600 text-sm mb-1">Milestones</p>
