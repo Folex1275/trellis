@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { nativeToScVal } from '@stellar/stellar-sdk'
 import { useContractInvoke } from '../hooks/useContractInvoke'
 import { useWallet } from '../context/WalletContext'
 import useToast from '../hooks/useToast'
+import TransactionStatus from './TransactionStatus'
 import type { Agreement, Milestone } from '../lib/soroban'
 
 interface MilestoneActionsProps {
@@ -14,10 +15,11 @@ interface MilestoneActionsProps {
 export default function MilestoneActions({ milestone, agreement, onSuccess }: MilestoneActionsProps) {
   const wallet = useWallet()
   const toast = useToast()
-  const { invoke, status } = useContractInvoke()
+  const { invoke, status, txHash, error, reset } = useContractInvoke()
   const [showProofInput, setShowProofInput] = useState(false)
   const [proofUri, setProofUri] = useState('')
   const [showConfirm, setShowConfirm] = useState<string | null>(null)
+  const pendingAction = useRef<string | null>(null)
 
   const isLoading = status === 'building' || status === 'signing' || status === 'submitting'
   const isUserPayer = wallet.publicKey === agreement.payer
@@ -26,6 +28,7 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
   const handleLockFunds = async () => {
     if (!wallet.publicKey) return
 
+    pendingAction.current = 'lock_funds'
     try {
       const idBytes = Buffer.from(agreement.agreement_id, 'hex')
       const args = [
@@ -37,6 +40,7 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
       await invoke('lock_funds', args, wallet.publicKey)
       toast.success({ title: 'Funds locked successfully' })
       setShowConfirm(null)
+      pendingAction.current = null
       onSuccess?.()
     } catch (err) {
       toast.error({ title: 'Lock funds failed', message: err instanceof Error ? err.message : 'Unknown error' })
@@ -46,6 +50,7 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
   const handleSubmitWork = async () => {
     if (!wallet.publicKey || !proofUri.trim()) return
 
+    pendingAction.current = 'submit_work'
     try {
       const idBytes = Buffer.from(agreement.agreement_id, 'hex')
       const args = [
@@ -60,6 +65,7 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
       setShowProofInput(false)
       setProofUri('')
       setShowConfirm(null)
+      pendingAction.current = null
       onSuccess?.()
     } catch (err) {
       toast.error({ title: 'Submit work failed', message: err instanceof Error ? err.message : 'Unknown error' })
@@ -69,6 +75,7 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
   const handleApproveRelease = async () => {
     if (!wallet.publicKey) return
 
+    pendingAction.current = 'approve_and_release'
     try {
       const idBytes = Buffer.from(agreement.agreement_id, 'hex')
       const args = [
@@ -80,6 +87,7 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
       await invoke('approve_and_release', args, wallet.publicKey)
       toast.success({ title: 'Milestone approved and funds released' })
       setShowConfirm(null)
+      pendingAction.current = null
       onSuccess?.()
     } catch (err) {
       toast.error({ title: 'Approve failed', message: err instanceof Error ? err.message : 'Unknown error' })
@@ -89,6 +97,7 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
   const handleRaiseDispute = async () => {
     if (!wallet.publicKey) return
 
+    pendingAction.current = 'raise_dispute'
     try {
       const idBytes = Buffer.from(agreement.agreement_id, 'hex')
       const args = [
@@ -100,10 +109,19 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
       await invoke('raise_dispute', args, wallet.publicKey)
       toast.success({ title: 'Dispute raised' })
       setShowConfirm(null)
+      pendingAction.current = null
       onSuccess?.()
     } catch (err) {
       toast.error({ title: 'Raise dispute failed', message: err instanceof Error ? err.message : 'Unknown error' })
     }
+  }
+
+  const handleRetry = () => {
+    reset()
+    if (pendingAction.current === 'lock_funds') handleLockFunds()
+    else if (pendingAction.current === 'submit_work') handleSubmitWork()
+    else if (pendingAction.current === 'approve_and_release') handleApproveRelease()
+    else if (pendingAction.current === 'raise_dispute') handleRaiseDispute()
   }
 
   // Determine available actions based on milestone status and user role
@@ -159,6 +177,14 @@ export default function MilestoneActions({ milestone, agreement, onSuccess }: Mi
           </button>
         ))}
       </div>
+
+      <TransactionStatus
+        status={status}
+        txHash={txHash}
+        error={error}
+        onRetry={handleRetry}
+        method={pendingAction.current || ''}
+      />
 
       {/* Proof URI Input */}
       {showProofInput && (
