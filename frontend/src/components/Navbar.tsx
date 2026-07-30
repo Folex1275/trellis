@@ -50,6 +50,16 @@ function Navbar() {
           >
             Check Status
           </Link>
+          <Link 
+            to="/history" 
+            className={`text-sm font-medium transition-colors ${
+              location.pathname === '/history'
+                ? 'text-cyan-400'
+                : 'text-gray-400 dark:text-gray-400 light:text-gray-600 hover:text-cyan-400'
+            }`}
+          >
+            History
+          </Link>
         </div>
       </div>
       <div className="flex items-center gap-4">
