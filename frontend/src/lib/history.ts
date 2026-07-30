@@ -3,6 +3,9 @@ export const HISTORY_STORAGE_KEY = 'trellis_agreement_history'
 /** Most recent entries kept; older ones fall off the end of the list. */
 export const MAX_HISTORY_ENTRIES = 20
 
+/** Entries older than 30 days are automatically evicted. */
+export const MAX_ENTRY_AGE_MS = 30 * 24 * 60 * 60 * 1000
+
 export type AgreementRole = 'payer' | 'payee' | 'resolver' | 'observer'
 
 export interface HistoryEntry {
@@ -26,14 +29,27 @@ function readStorage(): HistoryEntry[] {
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(isHistoryEntry)
+    const entries = parsed.filter(isHistoryEntry)
+    // Auto-evict entries older than 30 days
+    return evictStaleEntries(entries)
   } catch {
     // Corrupt JSON or storage unavailable (private mode, disabled cookies).
     return []
   }
 }
 
-function writeStorage(entries: HistoryEntry[]): void {
+/** Remove entries whose lastViewed timestamp is older than MAX_ENTRY_AGE_MS. */
+function evictStaleEntries(entries: HistoryEntry[]): HistoryEntry[] {
+  const cutoff = Date.now() - MAX_ENTRY_AGE_MS
+  const fresh = entries.filter((e) => new Date(e.lastViewed).getTime() > cutoff)
+  // If entries were evicted, persist the cleaned list back to storage
+  if (fresh.length !== entries.length) {
+    writeStorageRaw(fresh)
+  }
+  return fresh
+}
+
+function writeStorageRaw(entries: HistoryEntry[]): void {
   try {
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(entries))
   } catch {
@@ -61,11 +77,11 @@ export function addToHistory(entry: HistoryEntry): void {
     role: entry.role ?? previous?.role,
   }
   const rest = existing.filter((item) => item.agreementId !== entry.agreementId)
-  writeStorage([merged, ...rest].slice(0, MAX_HISTORY_ENTRIES))
+  writeStorageRaw([merged, ...rest].slice(0, MAX_HISTORY_ENTRIES))
 }
 
 export function removeFromHistory(agreementId: string): void {
-  writeStorage(readStorage().filter((item) => item.agreementId !== agreementId))
+  writeStorageRaw(readStorage().filter((item) => item.agreementId !== agreementId))
 }
 
 export function clearHistory(): void {

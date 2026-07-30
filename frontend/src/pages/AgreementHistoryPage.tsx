@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import useToast from '../hooks/useToast'
 import { formatRelativeTime, truncateAgreementId } from '../lib/format'
 import {
@@ -20,7 +20,6 @@ const ROLE_STYLES: Record<AgreementRole, string> = {
 function AgreementHistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [confirmingClear, setConfirmingClear] = useState(false)
-  const navigate = useNavigate()
   const toast = useToast()
 
   useEffect(() => {
@@ -147,13 +146,12 @@ function AgreementHistoryPage() {
               </div>
 
               <div className="mt-4 flex shrink-0 gap-2 sm:mt-0">
-                <button
-                  type="button"
-                  onClick={() => navigate(`/agreement/${entry.agreementId}`)}
+                <Link
+                  to={`/agreement/${entry.agreementId}`}
                   className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-semibold text-navy-900 transition-colors hover:bg-cyan-300"
                 >
                   View
-                </button>
+                </Link>
                 <button
                   type="button"
                   onClick={() => handleRemove(entry.agreementId)}
