@@ -4,6 +4,7 @@ use soroban_sdk::{contracttype, Address, BytesN, String, Vec};
 // EscrowStatus — lifecycle state machine for an escrow agreement / milestone
 // ---------------------------------------------------------------------------
 #[contracttype]
+#[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EscrowStatus {
     /// Agreement created but no funds deposited yet.
@@ -29,12 +30,20 @@ pub struct Milestone {
     /// Ordinal identifier for this milestone within the agreement (0-indexed).
     pub id: u32,
     /// Token amount (in the smallest denomination) locked for this milestone.
+    ///
+    /// Must be strictly positive — `init` rejects zero or negative amounts
+    /// with [`crate::errors::TrellisError::InvalidMilestone`], since a
+    /// zero-value milestone creates a noise transaction with no economic
+    /// effect and a negative amount is not a meaningful escrow value.
     pub amount: i128,
     /// Current lifecycle state of this milestone.
     pub status: EscrowStatus,
     /// Optional URI linking to delivery proof (e.g. GitHub PR, Figma file).
-    /// Stored as an empty String when no proof has been submitted yet.
-    pub proof_uri: String,
+    ///
+    /// `None` means no proof has been submitted yet. This is the only
+    /// representation of "no proof" — an empty `Some("")` is not a sentinel
+    /// and callers should not construct one.
+    pub proof_uri: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +61,23 @@ pub struct Agreement {
     /// SAC or custom token contract used for payments.
     pub token: Address,
     /// Ordered list of milestones that make up this agreement.
+    ///
+    /// Must be non-empty — `init` rejects a `milestones` vector with zero
+    /// entries, since such an agreement could never transition through any
+    /// state.
     pub milestones: Vec<Milestone>,
     /// Trusted third-party address authorised to resolve disputes.
+    ///
+    /// Must be distinct from both `payer` and `payee` — `init` rejects a
+    /// resolver equal to either party, since that would let one side
+    /// unilaterally decide its own disputes.
     pub dispute_resolver: Address,
+    /// Sum of every milestone's `amount`, pre-computed once in `init`.
+    ///
+    /// Lets off-chain readers (indexers, the CLI, the frontend) get the
+    /// agreement's total value from a single field instead of iterating
+    /// `milestones` on every read. Fixed for the lifetime of the agreement —
+    /// there is no entrypoint that adds, removes, or resizes milestones after
+    /// `init`, so it never needs recomputation.
+    pub total_amount: i128,
 }

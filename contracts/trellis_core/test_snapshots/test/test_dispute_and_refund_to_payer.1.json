@@ -97,9 +97,7 @@
                           "key": {
                             "symbol": "proof_uri"
                           },
-                          "val": {
-                            "string": ""
-                          }
+                          "val": "void"
                         },
                         {
                           "key": {
@@ -547,9 +545,7 @@
                                 "key": {
                                   "symbol": "proof_uri"
                                 },
-                                "val": {
-                                  "string": ""
-                                }
+                                "val": "void"
                               },
                               {
                                 "key": {
@@ -591,6 +587,17 @@
                       "val": {
                         "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "total_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 2000
+                        }
+                      }
                     }
                   ]
                 }
@@ -598,7 +605,7 @@
             },
             "ext": "v0"
           },
-          4095
+          518400
         ]
       ],
       [

@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, MockAuth},
     token, vec, Address, BytesN, Env, String, Vec,
 };
 
@@ -26,7 +26,7 @@ fn one_milestone(env: &Env, amount: i128) -> Vec<Milestone> {
             id: 0,
             amount,
             status: EscrowStatus::Pending,
-            proof_uri: String::from_str(env, ""),
+            proof_uri: None,
         },
     ]
 }
@@ -34,7 +34,14 @@ fn one_milestone(env: &Env, amount: i128) -> Vec<Milestone> {
 /// Common test fixture.
 ///
 /// Returns `(env, payer, payee, dispute_resolver, token_address, client)`.
-fn setup() -> (Env, Address, Address, Address, Address, TrellisContractClient<'static>) {
+fn setup() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TrellisContractClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -76,15 +83,14 @@ fn test_happy_path() {
     let amount: i128 = 1_000;
 
     // ── init ───────────────────────────────────────────────────────────────
-    client
-        .init(
-            &id,
-            &payer,
-            &payee,
-            &token_address,
-            &one_milestone(&env, amount),
-            &dispute_resolver,
-        );
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, amount),
+        &dispute_resolver,
+    );
 
     // ── lock_funds ─────────────────────────────────────────────────────────
     let payer_balance_before = token_client.balance(&payer);
@@ -101,9 +107,8 @@ fn test_happy_path() {
         "trellis contract balance should equal locked milestone amount"
     );
 
-
     // ── submit_work ────────────────────────────────────────────────────────
-    let proof = String::from_str(&env, "ipfs://test");
+    let proof = Some(String::from_str(&env, "ipfs://test"));
     client.submit_work(&id, &0u32, &proof);
 
     // ── approve_and_release ────────────────────────────────────────────────
@@ -223,8 +228,136 @@ fn test_cancel_unfunded_milestone() {
     let result = client.try_cancel_unfunded_milestone(&id, &0u32);
     assert_eq!(
         result,
-        Err(Ok(TrellisError::NoFundsToRefund)),
-        "second cancel must return NoFundsToRefund"
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "second cancel on an already-Refunded milestone must return InvalidStateTransition"
+    );
+}
+
+/// Cancelling a milestone that has already been funded must be rejected with
+/// InvalidStateTransition, not NoFundsToRefund — the milestone genuinely has
+/// funds locked, so the error must reflect the state machine violation.
+#[test]
+fn test_cancel_funded_milestone_fails_with_invalid_state_transition() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 6);
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 400),
+        &dispute_resolver,
+    );
+
+    // Fund the milestone so it is no longer Pending.
+    client.lock_funds(&id, &0u32);
+
+    let result = client.try_cancel_unfunded_milestone(&id, &0u32);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "cancelling a Funded milestone must return InvalidStateTransition"
+    );
+}
+
+/// Multi-milestone agreements should preserve independent state transitions.
+#[test]
+fn test_multi_milestone_transitions() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 6);
+
+    let milestones = vec![
+        &env,
+        Milestone {
+            id: 0,
+            amount: 1_000,
+            status: EscrowStatus::Pending,
+            proof_uri: None,
+        },
+        Milestone {
+            id: 1,
+            amount: 2_000,
+            status: EscrowStatus::Pending,
+            proof_uri: None,
+        },
+    ];
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &milestones,
+        &dispute_resolver,
+    );
+
+    client.lock_funds(&id, &0u32);
+    let proof = Some(String::from_str(&env, "ipfs://multi-milestone"));
+    client.submit_work(&id, &0u32, &proof);
+    client.approve_and_release(&id, &0u32);
+
+    let agreement = client.get_agreement(&id);
+    let first = agreement.milestones.get(0).expect("milestone 0 must exist");
+    let second = agreement.milestones.get(1).expect("milestone 1 must exist");
+
+    assert_eq!(first.status, EscrowStatus::Completed);
+    assert_eq!(second.status, EscrowStatus::Pending);
+}
+
+/// batch_lock_funds funds every milestone in the supplied list in one call.
+#[test]
+fn test_batch_lock_funds() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let token_client = token::TokenClient::new(&env, &token_address);
+    let id = agreement_id(&env, 10);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let funded = client.batch_lock_funds(&id, &milestone_ids);
+
+    assert_eq!(funded, 2u32, "both milestones should be funded");
+    assert_eq!(
+        token_client.balance(&client.address),
+        1_000,
+        "contract balance should equal sum of locked milestones"
+    );
+    assert_eq!(
+        token_client.balance(&payer),
+        9_000,
+        "payer balance should decrease by the total locked amount"
+    );
+}
+
+/// batch_lock_funds short-circuits on the first already-funded milestone.
+#[test]
+fn test_batch_lock_funds_partial_failure() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 11);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 500, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+    client.lock_funds(&id, &0u32);
+
+    // milestone 0 is already Funded — the batch must fail atomically.
+    let milestone_ids = vec![&env, 0u32, 1u32];
+    let result = client.try_batch_lock_funds(&id, &milestone_ids);
+    assert_eq!(
+        result,
+        Err(Ok(TrellisError::InvalidStateTransition)),
+        "batch should fail when a milestone is not Pending"
     );
 }
 
@@ -277,6 +410,45 @@ fn test_get_agreement() {
         Ok(TrellisError::AgreementNotFound),
         "error must be AgreementNotFound"
     );
-
 }
 
+/// get_milestone returns the correct milestone for a valid index.
+#[test]
+fn test_get_milestone_returns_correct_milestone() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 20);
+
+    let milestones = vec![
+        &env,
+        Milestone { id: 0, amount: 100, status: EscrowStatus::Pending, proof_uri: None },
+        Milestone { id: 1, amount: 200, status: EscrowStatus::Pending, proof_uri: None },
+    ];
+
+    client.init(&id, &payer, &payee, &token_address, &milestones, &dispute_resolver);
+
+    let m = client.get_milestone(&id, &1u32);
+    assert!(m.is_some(), "milestone 1 must be found");
+    let m = m.unwrap();
+    assert_eq!(m.id, 1, "id must match the requested index");
+    assert_eq!(m.amount, 200, "amount must match");
+    assert_eq!(m.status, EscrowStatus::Pending, "status must be Pending");
+}
+
+/// get_milestone returns None for an out-of-range milestone_id.
+#[test]
+fn test_get_milestone_invalid_id_returns_none() {
+    let (env, payer, payee, dispute_resolver, token_address, client) = setup();
+    let id = agreement_id(&env, 21);
+
+    client.init(
+        &id,
+        &payer,
+        &payee,
+        &token_address,
+        &one_milestone(&env, 100),
+        &dispute_resolver,
+    );
+
+    let result = client.get_milestone(&id, &99u32);
+    assert!(result.is_none(), "out-of-range milestone_id must return None");
+}

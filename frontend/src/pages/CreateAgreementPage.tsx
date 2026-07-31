@@ -1,0 +1,254 @@
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { nativeToScVal, StrKey } from '@stellar/stellar-sdk'
+import { useContractInvoke } from '../hooks/useContractInvoke'
+import { useWallet } from '../context/WalletContext'
+import useToast from '../hooks/useToast'
+import MilestoneBuilder, { type MilestoneInput } from '../components/MilestoneBuilder'
+
+interface FormData {
+  payer: string
+  payee: string
+  resolver: string
+  token: string
+}
+
+interface ValidationErrors {
+  payer?: string
+  payee?: string
+  resolver?: string
+  token?: string
+  milestones?: string
+}
+
+function CreateAgreementPage() {
+  const navigate = useNavigate()
+  const wallet = useWallet()
+  const toast = useToast()
+  const { invoke, status } = useContractInvoke()
+
+  const [formData, setFormData] = useState<FormData>({
+    payer: '',
+    payee: '',
+    resolver: '',
+    token: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC', // Default testnet USDC
+  })
+
+  const [milestones, setMilestones] = useState<MilestoneInput[]>([])
+  const [errors, setErrors] = useState<ValidationErrors>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const validateAddress = (address: string, field: string): string | undefined => {
+    if (!address.trim()) {
+      return `${field} is required`
+    }
+    
+    try {
+      StrKey.decodeEd25519PublicKey(address)
+      return undefined
+    } catch {
+      return `Invalid Stellar address for ${field}`
+    }
+  }
+
+  const validateForm = (): boolean => {
+    const newErrors: ValidationErrors = {}
+
+    newErrors.payer = validateAddress(formData.payer, 'Payer')
+    newErrors.payee = validateAddress(formData.payee, 'Payee')
+    newErrors.resolver = validateAddress(formData.resolver, 'Resolver')
+    newErrors.token = validateAddress(formData.token, 'Token')
+
+    if (milestones.length === 0) {
+      newErrors.milestones = 'At least one milestone is required'
+    } else {
+      const invalidMilestone = milestones.find(
+        (m) => !m.amount || parseFloat(m.amount) <= 0
+      )
+      if (invalidMilestone) {
+        newErrors.milestones = 'All milestones must have amounts greater than 0'
+      }
+    }
+
+    setErrors(newErrors)
+    return Object.values(newErrors).every((err) => !err)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!wallet.connected || !wallet.publicKey) {
+      toast.error({ title: 'Wallet not connected', message: 'Please connect your wallet first' })
+      return
+    }
+
+    if (!validateForm()) {
+      toast.error({ title: 'Validation failed', message: 'Please fix the errors and try again' })
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      // Build milestone ScVals
+      const milestoneScVals = milestones.map((m) =>
+        nativeToScVal({
+          amount: BigInt(parseFloat(m.amount) * 1e7), // Convert to stroops (7 decimals)
+          description: m.description || '',
+        })
+      )
+
+      const args = [
+        nativeToScVal(formData.payer, { type: 'address' }),
+        nativeToScVal(formData.payee, { type: 'address' }),
+        nativeToScVal(formData.token, { type: 'address' }),
+        nativeToScVal(formData.resolver, { type: 'address' }),
+        nativeToScVal(milestoneScVals, { type: 'vec' }),
+      ]
+
+      const txHash = await invoke('init', args, wallet.publicKey)
+      
+      toast.success({ title: 'Agreement created!', message: `Transaction: ${txHash.slice(0, 8)}...` })
+
+      // Navigate to status page with the new agreement ID
+      // Note: In production, you'd extract the agreement ID from the transaction result
+      setTimeout(() => {
+        navigate('/status')
+      }, 1500)
+    } catch (err) {
+      console.error('Failed to create agreement:', err)
+      toast.error({
+        title: 'Creation failed',
+        message: err instanceof Error ? err.message : 'Unknown error occurred',
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleInputChange = (field: keyof FormData, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }))
+    
+    // Clear error for this field
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: undefined }))
+    }
+  }
+
+  return (
+    <main className="px-6 pt-16 pb-32 max-w-3xl mx-auto">
+      <h1 className="text-3xl font-bold text-white">Create Agreement</h1>
+      <p className="mt-3 text-gray-400">
+        Define the payer, payee, resolver and milestones for a new escrow agreement.
+      </p>
+
+      <form onSubmit={handleSubmit} className="mt-10 space-y-6">
+        {/* Party Addresses */}
+        <div className="rounded-xl border border-navy-700 bg-navy-800/60 p-6 space-y-4">
+          <h2 className="text-lg font-semibold text-white">Agreement Parties</h2>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">
+              Payer Address <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={formData.payer}
+              onChange={(e) => handleInputChange('payer', e.target.value)}
+              placeholder="G..."
+              className={`w-full px-4 py-2 bg-navy-700 border ${
+                errors.payer ? 'border-red-500' : 'border-navy-600'
+              } text-white rounded-lg focus:outline-none focus:border-cyan-400`}
+            />
+            {errors.payer && <p className="mt-1 text-xs text-red-400">{errors.payer}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">
+              Payee Address <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={formData.payee}
+              onChange={(e) => handleInputChange('payee', e.target.value)}
+              placeholder="G..."
+              className={`w-full px-4 py-2 bg-navy-700 border ${
+                errors.payee ? 'border-red-500' : 'border-navy-600'
+              } text-white rounded-lg focus:outline-none focus:border-cyan-400`}
+            />
+            {errors.payee && <p className="mt-1 text-xs text-red-400">{errors.payee}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">
+              Dispute Resolver Address <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={formData.resolver}
+              onChange={(e) => handleInputChange('resolver', e.target.value)}
+              placeholder="G..."
+              className={`w-full px-4 py-2 bg-navy-700 border ${
+                errors.resolver ? 'border-red-500' : 'border-navy-600'
+              } text-white rounded-lg focus:outline-none focus:border-cyan-400`}
+            />
+            {errors.resolver && <p className="mt-1 text-xs text-red-400">{errors.resolver}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">
+              Token Contract Address <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={formData.token}
+              onChange={(e) => handleInputChange('token', e.target.value)}
+              placeholder="C..."
+              className={`w-full px-4 py-2 bg-navy-700 border ${
+                errors.token ? 'border-red-500' : 'border-navy-600'
+              } text-white rounded-lg focus:outline-none focus:border-cyan-400`}
+            />
+            {errors.token && <p className="mt-1 text-xs text-red-400">{errors.token}</p>}
+            <p className="mt-1 text-xs text-gray-500">Default: Testnet USDC</p>
+          </div>
+        </div>
+
+        {/* Milestones */}
+        <div className="rounded-xl border border-navy-700 bg-navy-800/60 p-6">
+          <MilestoneBuilder milestones={milestones} onChange={setMilestones} />
+          {errors.milestones && (
+            <p className="mt-2 text-sm text-red-400">{errors.milestones}</p>
+          )}
+        </div>
+
+        {/* Submit Button */}
+        <div className="flex gap-4">
+          <button
+            type="submit"
+            disabled={isSubmitting || !wallet.connected || status !== 'idle'}
+            className="flex-1 px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-navy-900 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? 'Creating Agreement...' : 'Create Agreement'}
+          </button>
+          
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            disabled={isSubmitting}
+            className="px-6 py-3 border border-navy-700 text-gray-400 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+
+        {!wallet.connected && (
+          <p className="text-sm text-yellow-400 text-center">
+            Please connect your wallet to create an agreement
+          </p>
+        )}
+      </form>
+    </main>
+  )
+}
+
+export default CreateAgreementPage

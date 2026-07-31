@@ -1,45 +1,64 @@
-import { useScrollReveal } from '../hooks/useScrollReveal'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
+
+export type RevealDirection = 'up' | 'down' | 'left' | 'right'
 
 interface ScrollRevealProps {
   children: ReactNode
-  className?: string
-  delay?: number
-  direction?: 'up' | 'down' | 'left' | 'right'
+  direction?: RevealDirection
   distance?: number
   duration?: number
+  easing?: string
+  delay?: number
+  className?: string
+}
+
+function getFromTransform(direction: RevealDirection, distance: number): string {
+  switch (direction) {
+    case 'up':    return `translateY(${distance}px)`
+    case 'down':  return `translateY(-${distance}px)`
+    case 'left':  return `translateX(${distance}px)`
+    case 'right': return `translateX(-${distance}px)`
+  }
 }
 
 export function ScrollReveal({
   children,
-  className = '',
-  delay = 0,
   direction = 'up',
-  distance = 30,
+  distance = 40,
   duration = 600,
+  easing = 'ease-out',
+  delay = 0,
+  className = '',
 }: ScrollRevealProps) {
-  const { ref, isVisible } = useScrollReveal()
+  const ref = useRef<HTMLDivElement>(null)
+  const [isVisible, setIsVisible] = useState(false)
 
-  const getTransform = () => {
-    if (isVisible) return 'translate(0, 0)'
-    switch (direction) {
-      case 'up': return `translateY(${distance}px)`
-      case 'down': return `translateY(-${distance}px)`
-      case 'left': return `translateX(${distance}px)`
-      case 'right': return `translateX(-${distance}px)`
-    }
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true)
+          observer.unobserve(el)
+        }
+      },
+      { threshold: 0.15 },
+    )
+
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const style: CSSProperties = {
+    transition: `transform ${duration}ms ${easing} ${delay}ms, opacity ${duration}ms ${easing} ${delay}ms`,
+    transform: isVisible ? 'none' : getFromTransform(direction, distance),
+    opacity: isVisible ? 1 : 0,
   }
 
   return (
-    <div
-      ref={ref}
-      className={className}
-      style={{
-        opacity: isVisible ? 1 : 0,
-        transform: getTransform(),
-        transition: `opacity ${duration}ms ease ${delay}ms, transform ${duration}ms ease ${delay}ms`,
-      }}
-    >
+    <div ref={ref} style={style} className={className}>
       {children}
     </div>
   )

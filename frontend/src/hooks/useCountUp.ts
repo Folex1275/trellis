@@ -1,48 +1,60 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface UseCountUpOptions {
-  end: number
   duration?: number
-  start?: number
-  enabled?: boolean
+  minThreshold?: number
 }
 
-export function useCountUp({
-  end,
-  duration = 2000,
-  start = 0,
-  enabled = true,
-}: UseCountUpOptions) {
-  const [count, setCount] = useState(start)
-  const frameRef = useRef<number>(undefined)
-  const startTimeRef = useRef<number>(undefined)
+export function useCountUp(
+  targetValue: number,
+  options: UseCountUpOptions = {},
+): number {
+  const { duration = 500, minThreshold = 5 } = options
+
+  const [displayValue, setDisplayValue] = useState(targetValue)
+  const previousValueRef = useRef(targetValue)
+  const animationFrameRef = useRef<number | null>(null)
+  const startTimeRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!enabled || end === 0) return
+    const startValue = previousValueRef.current
+    const change = Math.abs(targetValue - startValue)
 
-    function easeOutQuart(t: number): number {
-      return 1 - Math.pow(1 - t, 4)
+    if (change === 0) return
+
+    if (change < minThreshold) {
+      setDisplayValue(targetValue)
+      previousValueRef.current = targetValue
+      return
     }
 
-    function animate(timestamp: number) {
-      if (!startTimeRef.current) startTimeRef.current = timestamp
-      const elapsed = timestamp - startTimeRef.current
+    const startTime = performance.now()
+    startTimeRef.current = startTime
+
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime
       const progress = Math.min(elapsed / duration, 1)
-      const easedProgress = easeOutQuart(progress)
-      setCount(Math.floor(start + (end - start) * easedProgress))
+
+      const current = startValue + (targetValue - startValue) * progress
+      setDisplayValue(Math.round(current))
 
       if (progress < 1) {
-        frameRef.current = requestAnimationFrame(animate)
+        animationFrameRef.current = requestAnimationFrame(animate)
       } else {
-        setCount(end)
+        setDisplayValue(targetValue)
+        previousValueRef.current = targetValue
+        animationFrameRef.current = null
       }
     }
 
-    frameRef.current = requestAnimationFrame(animate)
-    return () => {
-      if (frameRef.current) cancelAnimationFrame(frameRef.current)
-    }
-  }, [end, duration, start, enabled])
+    animationFrameRef.current = requestAnimationFrame(animate)
 
-  return count
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+    }
+  }, [targetValue, duration, minThreshold])
+
+  return displayValue
 }

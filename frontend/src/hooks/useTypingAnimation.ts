@@ -1,43 +1,53 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-interface UseTypingAnimationOptions {
-  text: string
-  speed?: number
-  delay?: number
-  onComplete?: () => void
-}
-
-export function useTypingAnimation({
-  text,
-  speed = 50,
-  delay = 500,
-  onComplete,
-}: UseTypingAnimationOptions) {
+export function useTypingAnimation(
+  text: string,
+  delayMs = 40,
+  batchSize = 3,
+): string {
   const [displayedText, setDisplayedText] = useState('')
-  const [isComplete, setIsComplete] = useState(false)
-  const [hasStarted, setHasStarted] = useState(false)
+
+  const generationRef = useRef(0)
+
+  const STALL_FALLBACK_MS = 10000
+
+  const typeNextChar = useCallback(
+    (generation: number, charIndex: number) => {
+      if (generation !== generationRef.current) return
+
+      if (charIndex >= text.length) return
+
+      const nextIndex = Math.min(charIndex + batchSize, text.length)
+      setDisplayedText(text.slice(0, nextIndex))
+
+      if (nextIndex < text.length) {
+        setTimeout(() => typeNextChar(generation, nextIndex), delayMs)
+      }
+    },
+    [text, delayMs, batchSize],
+  )
 
   useEffect(() => {
-    const startTimer = setTimeout(() => {
-      setHasStarted(true)
-    }, delay)
-    return () => clearTimeout(startTimer)
-  }, [delay])
+    const generation = generationRef.current + 1
+    generationRef.current = generation
 
-  useEffect(() => {
-    if (!hasStarted) return
-    if (displayedText.length === text.length) {
-      setIsComplete(true)
-      onComplete?.()
-      return
+    setDisplayedText('')
+
+    if (text.length === 0) return
+
+    const timerId = setTimeout(() => typeNextChar(generation, 0), delayMs)
+
+    const fallbackId = setTimeout(() => {
+      if (generation === generationRef.current) setDisplayedText(text)
+    }, STALL_FALLBACK_MS)
+
+    return () => {
+      clearTimeout(timerId)
+      clearTimeout(fallbackId)
     }
+  }, [text, delayMs, typeNextChar])
 
-    const timer = setTimeout(() => {
-      setDisplayedText(text.slice(0, displayedText.length + 1))
-    }, speed)
-
-    return () => clearTimeout(timer)
-  }, [hasStarted, displayedText, text, speed, onComplete])
-
-  return { displayedText, isComplete, hasStarted }
+  return displayedText
 }
+
+export default useTypingAnimation

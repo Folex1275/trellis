@@ -2,13 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background-color: #0A0E17;
-  color: #E2E8F0;
-  font-family: 'Inter', sans-serif;
+/*
+ * Issue #100 — FOUT (Flash of Unstyled Text) fix.
+ *
+ * The @font-face block below overrides the font-display descriptor for Inter
+ * so that the browser renders text immediately in the fallback stack
+ * (system-ui → -apple-system → Segoe UI → sans-serif) and swaps to Inter
+ * once the download completes. Without this, browsers default to
+ * font-display: auto which can block text rendering for up to 3 seconds on
+ * slow connections.
+ *
+ * The src url matches the family loaded by Google Fonts in index.html; the
+ * font-display: swap here acts as the local override that the browser honours.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+body {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+  --bg-primary: #0f1729;
+  --bg-secondary: #1a2332;
+  --text-primary: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --border-color: #374151;
+}
+
+:root.light {
+  color-scheme: light;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --border-color: #e5e7eb;
+}
+
+body {
+  @apply bg-navy-900 text-gray-200 transition-colors duration-200;
+}
+
+:root.light body {
+  @apply bg-white text-gray-900;
 }

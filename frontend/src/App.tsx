@@ -1,67 +1,63 @@
-import { useState } from 'react'
+import { Routes, Route } from 'react-router-dom'
 import Navbar from './components/Navbar'
+import { ExplorerLink } from './components/ExplorerLink'
 import { NetworkBackground } from './components/NetworkBackground'
-import { TypingText } from './components/TypingText'
-import { HowItWorks } from './components/HowItWorks'
-import { StatsBar } from './components/StatsBar'
+import { WalletProvider } from './context/WalletContext'
+import { ThemeProvider } from './context/ThemeContext'
+import ToastProvider from './components/toast/ToastProvider'
+import { CONTRACT_ID } from './lib/config'
+import { explorerBaseUrl, networkLabel } from './lib/explorer'
+import HomePage from './pages/HomePage'
+import StatusPage from './pages/StatusPage'
+import CreatePage from './pages/CreatePage'
+import AgreementHistoryPage from './pages/AgreementHistoryPage'
+import NotFoundPage from './pages/NotFoundPage'
 
 function App() {
-  const [headingComplete, setHeadingComplete] = useState(false)
-  const [subheadingComplete, setSubheadingComplete] = useState(false)
-
   return (
-    <div className="relative min-h-screen text-gray-200">
-      <NetworkBackground />
-      <div className="relative z-10">
-        <Navbar />
-        <main className="flex flex-col items-center justify-center min-h-screen px-6 text-center">
+    <ThemeProvider>
+      <WalletProvider>
+        <ToastProvider>
+          <div className="relative min-h-screen text-gray-200 dark:text-gray-200 light:text-gray-900 bg-navy-900 dark:bg-navy-900 light:bg-white">
+            <NetworkBackground />
+            <div className="relative z-10">
+              <Navbar />
+              
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/status" element={<StatusPage />} />
+                <Route path="/agreement/:id" element={<StatusPage />} />
+                <Route path="/create" element={<CreatePage />} />
+                <Route path="/history" element={<AgreementHistoryPage />} />
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
 
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white max-w-2xl leading-tight min-h-[4rem]">
-            <TypingText
-              text="Trustless Escrow for Remote Work"
-              speed={45}
-              delay={400}
-              onComplete={() => setHeadingComplete(true)}
-            />
-          </h1>
+              <p className="mt-12 flex flex-wrap items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-500 light:text-gray-600">
+                <span>Escrow contract on {networkLabel()}:</span>
+                <ExplorerLink type="contract" value={CONTRACT_ID} full />
+              </p>
+            </div>
 
-          <div
-            className="mt-4 transition-all duration-700"
-            style={{
-              opacity: headingComplete ? 1 : 0,
-              transform: headingComplete ? 'translateY(0)' : 'translateY(12px)',
-            }}
-          >
-            <TypingText
-              text="Built on Stellar's Soroban smart contract platform"
-              speed={30}
-              delay={headingComplete ? 200 : 99999}
-              className="text-gray-400 text-lg sm:text-xl"
-              showCursor={false}
-              onComplete={() => setSubheadingComplete(true)}
-            />
+            <footer className="border-t border-navy-700/60 px-6 py-8 text-center text-sm text-gray-500">
+              <p>
+                Every agreement, deposit, and dispute resolution is recorded on-chain. Verify any of
+                them yourself on{' '}
+                <a
+                  href={explorerBaseUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-400 underline decoration-cyan-400/40 underline-offset-2 transition-colors hover:text-cyan-300"
+                >
+                  Stellar Expert
+                </a>
+                .
+              </p>
+              <p className="mt-2 text-xs text-gray-600">Trellis v{__APP_VERSION__}</p>
+            </footer>
           </div>
-
-          <div
-            className="mt-10 flex flex-col sm:flex-row gap-4 transition-all duration-700"
-            style={{
-              opacity: subheadingComplete ? 1 : 0,
-              transform: subheadingComplete ? 'translateY(0)' : 'translateY(16px)',
-            }}
-          >
-            <button className="bg-cyan-400 text-navy-900 font-semibold px-8 py-3 rounded-lg text-base hover:bg-cyan-300 transition-colors">
-              Create Agreement
-            </button>
-            <button className="border border-cyan-400 text-cyan-400 font-semibold px-8 py-3 rounded-lg text-base hover:bg-cyan-400/10 transition-colors">
-              Check Status
-            </button>
-          </div>
-
-        </main>
-        <StatsBar />
-        <HowItWorks />
-      </div>
-    </div>
+        </ToastProvider>
+      </WalletProvider>
+    </ThemeProvider>
   )
 }
 

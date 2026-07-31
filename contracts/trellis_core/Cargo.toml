@@ -6,8 +6,17 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+# soroban-sdk 22.x only — the on-chain ABI (env interface version) is tied to
+# the major version, and each minor/patch is expected to stay
+# backwards-compatible within it. The explicit upper bound keeps a future
+# major bump (23) from being pulled in silently; Cargo.lock (committed) pins
+# the exact resolved version for reproducible builds across environments.
+# Deploying the compiled WASM requires a `stellar` CLI build that supports the
+# soroban-sdk 22.x host environment — see DEPLOYMENT.md's Prerequisites for
+# the version this repo has been verified against.
 [dependencies]
-soroban-sdk = { version = "22", features = ["alloc"] }
+soroban-sdk = { version = ">=22.0.0, <23", features = ["alloc"] }
 
 [dev-dependencies]
-soroban-sdk = { version = "22", features = ["testutils"] }
+soroban-sdk = { version = ">=22.0.0, <23", features = ["testutils"] }
+proptest = { version = "1.5.0", default-features = false, features = ["std"] }
