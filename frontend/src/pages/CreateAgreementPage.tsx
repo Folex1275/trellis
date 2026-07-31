@@ -5,6 +5,7 @@ import { useContractInvoke } from '../hooks/useContractInvoke'
 import { useWallet } from '../context/WalletContext'
 import useToast from '../hooks/useToast'
 import MilestoneBuilder, { type MilestoneInput } from '../components/MilestoneBuilder'
+import { AgreementIdGenerator } from '../components/AgreementIdGenerator'
 
 interface FormData {
   payer: string
@@ -27,6 +28,7 @@ function CreateAgreementPage() {
   const toast = useToast()
   const { invoke, status } = useContractInvoke()
 
+  const [agreementId, setAgreementId] = useState<string>('')
   const [formData, setFormData] = useState<FormData>({
     payer: '',
     payee: '',
@@ -141,6 +143,32 @@ function CreateAgreementPage() {
       <p className="mt-3 text-gray-400">
         Define the payer, payee, resolver and milestones for a new escrow agreement.
       </p>
+
+      {/* Agreement ID Generator — generate a shareable ID for counterparties */}
+      <div className="mt-10">
+        <AgreementIdGenerator onGenerate={setAgreementId} />
+      </div>
+
+      {agreementId && (
+        <div className="mt-4 px-4 py-3 bg-navy-700/50 border border-navy-600 rounded-lg text-sm text-gray-400 flex items-center gap-2">
+          <svg
+            className="w-4 h-4 text-cyan-400 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <span>
+            Agreement ID generated. Share it with your counterparty so they can track the agreement.
+          </span>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-10 space-y-6">
         {/* Party Addresses */}

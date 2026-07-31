@@ -110,13 +110,18 @@
 
 <br />
 
-<!-- Animated Badges -->
-<a href="#quickstart"><img src="https://img.shields.io/badge/build-passing-brightgreen?style=for-the-badge&logo=github-actions&logoColor=white&labelColor=0a0e17&color=22c55e" alt="Build Passing" /></a>
-<a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.83+-orange?style=for-the-badge&logo=rust&logoColor=white&labelColor=0a0e17&color=f97316" alt="Rust" /></a>
-<a href="https://soroban.stellar.org/"><img src="https://img.shields.io/badge/Soroban%20SDK-22.x-00c2ff?style=for-the-badge&logo=stellar&logoColor=white&labelColor=0a0e17&color=00c2ff" alt="Soroban SDK" /></a>
-<a href="#live-on-testnet"><img src="https://img.shields.io/badge/testnet-live-success?style=for-the-badge&labelColor=0a0e17&color=22c55e" alt="Testnet Live" /></a>
-<a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-lightgrey?style=for-the-badge&labelColor=0a0e17&color=94a3b8" alt="MIT License" /></a>
-<a href="./CONTRIBUTING.md"><img src="https://img.shields.io/badge/contributions-welcome-7c3aed?style=for-the-badge&labelColor=0a0e17&color=7c3aed" alt="Contributions Welcome" /></a>
+**Trustless, milestone-based escrow for freelance and remote work — built on Stellar's Soroban smart contract platform.**
+
+[![Contract CI](https://github.com/Trellis-Ecosystem/trellis/actions/workflows/contract-ci.yml/badge.svg)](https://github.com/Trellis-Ecosystem/trellis/actions/workflows/contract-ci.yml)
+[![Frontend CI](https://github.com/Trellis-Ecosystem/trellis/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Trellis-Ecosystem/trellis/actions/workflows/frontend-ci.yml)
+[![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust)]()
+[![Soroban](https://img.shields.io/badge/soroban-sdk%2022.x-blue)]()
+[![Deployed](https://img.shields.io/badge/testnet-live-success)]()
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
+[![Status](https://img.shields.io/badge/status-active%20development-yellow)]()
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+
+</div>
 
 ---
 

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contributing Guide
+    url: https://github.com/Trellis-Ecosystem/trellis/blob/master/CONTRIBUTING.md
+    about: Read this before setting up the repo or opening a pull request.

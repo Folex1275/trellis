@@ -211,10 +211,55 @@ A live test agreement was created on testnet during initial deployment verificat
 | Payee | `GCGX32T5547AE57PUIAX5CDQWKHHEQFYOPIGXH7O3CENKDX3FR6U67RY` |
 | Milestone 0 | 1000 stroops, status: Pending |
 
+> **Note — testnet state is ephemeral:** Stellar resets testnet ledger state
+> periodically (roughly quarterly). When that happens, the contract instance
+> above and this agreement ID are wiped, and `trellis status` will return
+> `agreement not found`. If the command below fails, see
+> [Testnet Reset](#testnet-reset) to redeploy and create fresh test data.
+
 Verify it live:
 ```bash
 trellis status --agreement-id 0101010101010101010101010101010101010101010101010101010101010101
 ```
+
+---
+
+## Testnet Reset
+
+Stellar's testnet is periodically reset, wiping all deployed contract
+instances and stored ledger entries (including every Trellis agreement).
+When this happens, the contract ID in [Live Contract](#live-contract) and the
+agreement ID in [Verified Test Agreement](#verified-test-agreement) both stop
+resolving.
+
+### How to tell testnet was reset
+
+- `trellis status --agreement-id <any known ID>` returns `agreement not found`
+  even though the ID was previously valid.
+- The contract ID no longer resolves on
+  [Stellar Expert](https://stellar.expert/explorer/testnet).
+
+### Recovering
+
+1. Redeploy the contract (Steps 1–3 under
+   [Deploying Your Own Instance](#deploying-your-own-instance)) to get a new
+   contract ID.
+2. Update `TRELLIS_CONTRACT_ID` (CLI) and `VITE_CONTRACT_ID`
+   (`frontend/.env`) to the new contract ID.
+3. Create a fresh test agreement with `trellis init` (see
+   [CLI Usage](#cli-usage)) and note the new agreement ID for testing.
+4. Optionally run `scripts/reset-testnet.sh`, which automates steps 1–3: it
+   rebuilds and redeploys the contract, builds the CLI, and creates a new
+   test agreement, printing the new contract and agreement IDs.
+
+```bash
+./scripts/reset-testnet.sh
+```
+
+The script requires the same prerequisites as manual deployment (Rust,
+`wasm32-unknown-unknown` target, `stellar` CLI) and a funded
+`trellis-deployer` identity — it will create and fund one via Friendbot if it
+does not already exist.
 
 ---
 
