@@ -70,7 +70,7 @@ jobs:
       # failed build, not for release, so two copies add nothing.
       - name: Upload production build
         if: matrix.node-version == '22.x'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: frontend/dist
