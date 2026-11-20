@@ -96,6 +96,13 @@ impl TrellisContract {
     /// `Disputed` straight to `resolve_dispute`, either draining the pool
     /// without anything having been locked.
     ///
+    /// Additionally, no milestone may arrive with a pre-set `proof_uri`: proofs
+    /// are submitted by the payee via [`Self::submit_work`] once work is done,
+    /// and that entrypoint enforces [`MAX_PROOF_URI_LEN`] on the URI length to
+    /// bound storage. A milestone created with a proof already attached could
+    /// bypass that cap entirely, so the contract rejects any milestone whose
+    /// `proof_uri` is `Some` with [`TrellisError::ProofUriTooLong`].
+    ///
     /// `milestones` must be non-empty and `dispute_resolver` must be distinct
     /// from both `payer` and `payee` — see the `Errors` below.
     ///
@@ -106,6 +113,8 @@ impl TrellisContract {
     ///   an agreement could never transition through any state.
     /// - [`TrellisError::InvalidInitialMilestoneStatus`] if any milestone's
     ///   `status` is not `Pending`.
+    /// - [`TrellisError::ProofUriTooLong`] if any milestone's `proof_uri` is
+    ///   `Some`.
     /// - [`TrellisError::ResolverCannotBeParty`] if `dispute_resolver` equals
     ///   `payer` or `payee` — the resolver must be a neutral third party.
     /// - [`TrellisError::PayerEqualsPayee`] if `payer == payee`.
@@ -950,13 +959,6 @@ impl TrellisContract {
             funded += 1;
         }
 
-        let mut total: i128 = 0;
-        for milestone_id in milestone_ids.iter() {
-            let milestone = storage::read_milestone(&env, &agreement_id, milestone_id)?;
-            total = total
-                .checked_add(milestone.amount)
-                .ok_or(TrellisError::TransferShortfall)?;
-        }
         // One balance check around the whole batch: the delta must cover every
         // milestone just marked `Funded`.
         pull_funds(&env, &header.token, &header.payer, total, total)?;
@@ -1139,7 +1141,10 @@ impl TrellisContract {
         // for the case where escrowed funds really go back to the payer.
         let (refunded_amount, new_status) = match milestone.status {
             EscrowStatus::Pending => (0, EscrowStatus::Cancelled),
-            EscrowStatus::Funded => (milestone.amount, EscrowStatus::Refunded),
+            EscrowStatus::Funded => (
+                remaining_amount(&header, milestone_id, &milestone),
+                EscrowStatus::Refunded,
+            ),
             _ => return Err(TrellisError::InvalidStateTransition),
         };
 
@@ -1147,7 +1152,7 @@ impl TrellisContract {
         // token transfer.
         milestone.status = new_status;
         storage::write_milestone(&env, &agreement_id, milestone_id, &milestone);
-        close_milestone(&mut header, true);
+        close_milestone(&mut header, refunded_amount > 0);
         storage::write_header(&env, &agreement_id, &header);
 
         if refunded_amount > 0 {
@@ -1263,11 +1268,19 @@ fn pull_funds(
 /// `lock_funds` entirely and then release from the shared contract balance
 /// tokens that were never escrowed for that milestone.
 ///
+/// Additionally, no milestone may arrive with a pre-set `proof_uri`: proofs
+/// are submitted by the payee via [`TrellisContract::submit_work`] once work
+/// is done, and that entrypoint enforces [`crate::MAX_PROOF_URI_LEN`] on the
+/// URI length to bound storage. A milestone created with a proof already
+/// attached could bypass that cap entirely.
+///
 /// # Errors
 /// Returns [`TrellisError::InvalidMilestone`] on the first milestone whose
 /// `amount` is zero or negative.
 /// Returns [`TrellisError::InvalidInitialMilestoneStatus`] on the first
 /// milestone whose `status` is not `Pending`.
+/// Returns [`TrellisError::ProofUriTooLong`] on the first milestone whose
+/// `proof_uri` is `Some`.
 /// Returns [`TrellisError::TotalAmountOverflow`] if the sum of milestone
 /// amounts exceeds i128::MAX.
 fn validate_milestones(milestones: &Vec<Milestone>) -> Result<i128, TrellisError> {
@@ -1278,6 +1291,9 @@ fn validate_milestones(milestones: &Vec<Milestone>) -> Result<i128, TrellisError
         }
         if m.amount <= 0 {
             return Err(TrellisError::InvalidMilestone);
+        }
+        if m.proof_uri.is_some() {
+            return Err(TrellisError::ProofUriTooLong);
         }
         total = total
             .checked_add(m.amount)
